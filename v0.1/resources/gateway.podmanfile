@@ -1,0 +1,11 @@
+FROM rust:latest
+
+EXPOSE 3000
+
+COPY ./gateway.json /usr/share/
+ADD ./config /usr/local/config
+ADD ./gateway /usr/local/gateway
+
+RUN cargo install --path /usr/local/gateway/
+
+CMD ["hbt_gateway", "/usr/share/gateway.json"]

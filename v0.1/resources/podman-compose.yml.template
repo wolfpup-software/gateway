@@ -1,0 +1,9 @@
+version: "3"
+services:
+  gateway:
+    container_name: gateway__rust_{port}
+    build:
+      context: ./
+      dockerfile: gateway.podmanfile
+    ports:
+      - "{host}:{port}:3000"
