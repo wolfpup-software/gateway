@@ -14,6 +14,7 @@ use std::pin::Pin;
 use std::sync;
 use tokio_rustls::rustls::ServerConfig;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use std::path;
 
 enum State {
     Handshaking(tokio_rustls::Accept<AddrStream>),
@@ -120,11 +121,12 @@ impl Accept for TlsAcceptor {
     }
 }
 
+
+
 // Load public certificate from file.
-pub fn load_certs(filename: &str) -> io::Result<Vec<rustls::Certificate>> {
+fn load_certs(filename: &path::PathBuf) -> io::Result<Vec<rustls::Certificate>> {
     // Open certificate file.
-    let certfile = fs::File::open(filename)
-        .map_err(|e| error(format!("failed to open {}: {}", filename, e)))?;
+    let certfile = fs::File::open(filename)?;
     let mut reader = io::BufReader::new(certfile);
 
     // Load and return certificate.
@@ -141,15 +143,9 @@ fn error(err: String) -> io::Error {
 }
 
 // Load private key from file.
-pub fn load_private_key(filename: &str) -> io::Result<rustls::PrivateKey> {
-    // Open keyfile.
-    let keyfile = fs::File::open(filename)
-        .map_err(|e| error(format!("failed to open {}: {}", filename, e)))?;
-    let mut reader = io::BufReader::new(keyfile);
-
-    // Load and return a single private key.
-    let keys = rustls_pemfile::rsa_private_keys(&mut reader)
-        .map_err(|_| error("failed to load private key".into()))?;
+fn load_private_key(filename: &path::PathBuf) -> io::Result<rustls::PrivateKey> {
+    let keyfile = fs::File::open(filename)?;
+    let keys = rustls_pemfile::pkcs8_private_keys(&mut io::BufReader::new(keyfile))?;
     if keys.len() != 1 {
         return Err(error("expected a single private key".into()));
     }
@@ -157,13 +153,14 @@ pub fn load_private_key(filename: &str) -> io::Result<rustls::PrivateKey> {
     Ok(rustls::PrivateKey(keys[0].clone()))
 }
 
-pub fn create_tls_config() -> Result<sync::Arc<ServerConfig>, io::Error>  {
-    // Build TLS configuration.
-
+pub fn create_tls_config(
+    cert_filepath: &path::PathBuf,
+    key_filepath: &path::PathBuf,
+) -> Result<sync::Arc<ServerConfig>, io::Error>  {
     // Load public certificate.
-    let certs = load_certs("examples/sample.pem")?;
+    let certs = load_certs(cert_filepath)?;
     // Load private key.
-    let key = load_private_key("examples/sample.rsa")?;
+    let key = load_private_key(key_filepath)?;
     // Do not use client certificate authentication.
     let mut cfg = rustls::ServerConfig::builder()
         .with_safe_defaults()
@@ -174,3 +171,30 @@ pub fn create_tls_config() -> Result<sync::Arc<ServerConfig>, io::Error>  {
     cfg.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
     Ok(sync::Arc::new(cfg))
 }
+
+// // Prepare the TLS client config
+// let tls = match ca {
+//     Some(ref mut rd) => {
+//         // Read trust roots
+//         let certs = rustls_pemfile::certs(rd)
+//             .map_err(|_| error("failed to load custom CA store".into()))?;
+//         let mut roots = RootCertStore::empty();
+//         roots.add_parsable_certificates(&certs);
+//         // TLS client config using the custom CA store for lookups
+//         rustls::ClientConfig::builder()
+//             .with_safe_defaults()
+//             .with_root_certificates(roots)
+//             .with_no_client_auth()
+//     }
+//     // Default TLS client config with native roots
+//     None => rustls::ClientConfig::builder()
+//         .with_safe_defaults()
+//         .with_native_roots()
+//         .with_no_client_auth(),
+// };
+// // Prepare the HTTPS connector
+// let https = hyper_rustls::HttpsConnectorBuilder::new()
+//     .with_tls_config(tls)
+//     .https_or_http()
+//     .enable_http1()
+//     .build();

@@ -2,6 +2,8 @@ use std::env;
 use std::fmt;
 use std::fs;
 use std::path;
+use std::collections;
+
 
 use serde_json;
 use serde::{Serialize, Deserialize};
@@ -41,6 +43,7 @@ pub struct Config {
     pub port: u16,
     pub key: path::PathBuf,
     pub cert: path::PathBuf,
+    pub addresses: collections::BTreeMap<String, String>,
     // key value map
 }
 
@@ -95,6 +98,7 @@ impl Config {
             port: config.port,
             key: key,
             cert: cert,
+            addresses: config.addresses,
         })
     }
 }

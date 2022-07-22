@@ -7,10 +7,9 @@
 curr_dir=`dirname $0`
 target_key=$curr_dir/resources/self-signed-key.key
 target_cert=$curr_dir/resources/self-signed-cert.crt
-subject="/C=US/ST=CA/L=SF/O=Toshokan/OU=Education/CN=*.toshokan.com/emailAddress=brian@toshokan.com"
-# subject_alt_name="subjectAltName=DNS:*.toshokan.org,IP:0.0.0.0,IP:127.0.0.1"
+subject="/C=US/ST=CA/L=SF/O=Toshokan/OU=Education/CN=*.toshokan.org/emailAddress=brian@toshokan.com"
 
-openssl req -new -newkey rsa:4096 -x509 -sha256 \
+openssl req -new -newkey rsa:2048 -x509 -sha256 \
     -days 365 -nodes \
     -keyout $target_key \
     -subj $subject \
