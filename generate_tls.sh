@@ -5,9 +5,9 @@
 
 
 curr_dir=`dirname $0`
-target_key=$curr_dir/resources/self-signed-key.key
-target_cert=$curr_dir/resources/self-signed-cert.crt
-subject="/C=US/ST=CA/L=SF/O=Toshokan/OU=Education/CN=*.toshokan.org/emailAddress=brian@toshokan.com"
+target_key=$curr_dir/demo/self-signed-key.key
+target_cert=$curr_dir/demo/self-signed-cert.crt
+subject="/C=US/ST=CA/L=SF/O=Toshokan/OU=Education/CN=*.toshokan.org/emailAddress=taylor@toshokan.com"
 
 openssl req -new -newkey rsa:2048 -x509 -sha256 \
     -days 365 -nodes \

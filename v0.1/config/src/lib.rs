@@ -4,7 +4,6 @@ use std::fs;
 use std::path;
 use std::collections;
 
-
 use serde_json;
 use serde::{Serialize, Deserialize};
 
@@ -20,6 +19,8 @@ const FILEPATH_CERT_ERR: &str = "config did not include an existing cert flie";
 
 const PARENT_NOT_FOUND_ERR: &str = "parent directory of config not found";
 
+
+// consolidate structs into enums
 
 pub struct ConfigError {
     message: String,
@@ -41,12 +42,11 @@ impl fmt::Display for ConfigError {
 pub struct Config {
     pub host: String,
     pub port: u16,
-    pub key: path::PathBuf,
-    pub cert: path::PathBuf,
-    pub addresses: collections::BTreeMap<String, String>,
-    // key value map
+    pub key_filepath: path::PathBuf,
+    pub cert_filepath: path::PathBuf,
+    pub addresses: collections::HashMap<String, String>,
 }
-
+// convert this into a URI
 impl Config {
     pub fn from_filepath(filepath: &path::PathBuf) -> Result<Config, ConfigError> {
         // get position relative to working directory
@@ -76,10 +76,10 @@ impl Config {
             _ => return Err(ConfigError::new(JSON_DESERIALIZE_FAILED_ERR)),
         };
         
-        // create config with absolute filepaths from client config
+        // create key and cert with absolute filepaths from client config
         let key = match combine_pathbuf(
             &parent_dir,
-            &config.key,
+            &config.key_filepath,
         ) {
             Ok(j) => j,
             _ => return Err(ConfigError::new(FILEPATH_KEY_ERR)),
@@ -87,7 +87,7 @@ impl Config {
         
         let cert = match combine_pathbuf(
             &parent_dir,
-            &config.cert,
+            &config.cert_filepath,
         ) {
             Ok(j) => j,
             _ => return Err(ConfigError::new(FILEPATH_CERT_ERR)),
@@ -96,8 +96,8 @@ impl Config {
         Ok(Config {
             host: config.host,
             port: config.port,
-            key: key,
-            cert: cert,
+            key_filepath: key,
+            cert_filepath: cert,
             addresses: config.addresses,
         })
     }
@@ -119,3 +119,4 @@ pub fn config_to_string(config: &Config) -> Result<String, ConfigError> {
         _ => Err(ConfigError::new(JSON_SERIALIZE_FAILED_ERR))
     }
 }
+
