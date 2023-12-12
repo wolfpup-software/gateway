@@ -5,9 +5,9 @@ use std::net;
 use std::io;
 use std::sync::Arc;
 
-use hyper::Uri;
-use hyper::server::conn::http1;
-use hyper_util::rt::TokioIo;
+use http::Uri;
+use hyper_util::server::conn::auto::Builder;
+use hyper_util::rt::{TokioExecutor, TokioIo};
 use tokio::fs;
 use native_tls::{Identity, TlsAcceptor};
 use tokio::net::TcpListener;
@@ -33,12 +33,6 @@ async fn main() {
         Ok(c) => c,
         Err(e) => return println!("configuration error: {}", e),
     };
-
-		// get cert
-		
-		// get key
-
-		// create tcp listener
 
     let addresses = match create_address_map(&config) {
     	Ok(addrs) => addrs,
@@ -82,44 +76,47 @@ async fn main() {
     loop {
 	    let (socket, remote_addr) = match listener.accept().await {
 	    	Ok(s) => s,
-	    	Err(e) => return println!("socket error: {}", e),
+	    	Err(e) => {
+	    		println!("socket error: {}", e);
+	    		continue;
+	    	},
 	    };
 	    
     	let tls_acceptor = tls_acceptor.clone();
     	
     	// create service
     	
-    	let service = responses::Svc{
-    		addresses: addresses_arc.clone(),
-    	};
   		let tls_stream = match tls_acceptor.accept(socket).await {
   			Ok(s) => s,
   			Err(e) => {
   				println!("acceptor_error: {}", e);
-  				return;
+  				continue;
   			},
   		};
   		
 			let io = TokioIo::new(tls_stream);
-  		
+    	let service = responses::Svc{
+    		addresses: addresses_arc.clone(),
+    	};
+    	
     	tokio::task::spawn(async move {
-    		http1::Builder::new()
+    		Builder::new(TokioExecutor::new())
     			.serve_connection(io, service)
     			.await
     	});
     } 
 }
 
-fn create_address_map(config: &config::Config) -> Result<collections::HashMap::<hyper::Uri, hyper::Uri>, <hyper::Uri as TryFrom<String>>::Error> {
+fn create_address_map(config: &config::Config) -> Result<collections::HashMap::<http::Uri, http::Uri>, <http::Uri as TryFrom<String>>::Error> {
     // will need to verify hashmap values as uris as well, next step
-    let mut hashmap: collections::HashMap::<hyper::Uri, hyper::Uri> = collections::HashMap::new();
+    let mut hashmap: collections::HashMap::<http::Uri, http::Uri> = collections::HashMap::new();
     for (index, value) in config.addresses.iter() {
     	// create uri
-    	let index_uri = match hyper::Uri::try_from(index) {
+    	let index_uri = match http::Uri::try_from(index) {
     		Ok(uri) => uri,
     		Err(e) => return Err(e),
     	};
-    	let dest_uri = match hyper::Uri::try_from(value) {
+    	let dest_uri = match http::Uri::try_from(value) {
     		Ok(uri) => uri,
     		Err(e) => return Err(e),
     	};

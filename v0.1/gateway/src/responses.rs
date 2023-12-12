@@ -3,12 +3,12 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 
+use http_body_util::{Full};
 use hyper::{Uri, Response, Request, StatusCode};
 use hyper::header::{CONTENT_TYPE, HeaderValue};
 use hyper::body::{Incoming as IncomingBody};
 use hyper::service::Service;
 
-use http_body_util::{Full};
 
 const HTML: &str = "text/html; charset=utf-8";
 const INTERNAL_SERVER_ERROR: &str = "500 internal server error";
@@ -22,7 +22,19 @@ impl Service<Request<IncomingBody>> for Svc {
 	type Error = hyper::http::Error;
 	type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 	
-	fn call(&self, _req: Request<IncomingBody>) -> Self::Future {	
+	fn call(&self, req: Request<IncomingBody>) -> Self::Future {
+		// get URI from request
+		// build hashable URI
+		
+		// get hashed uri destination
+		
+		// create request
+		
+		// if http, use http client
+		// otherwise use https client
+		
+		// let dest = self.addresses.get(uri);
+		
 		Box::pin(async {
 		  response_500()
 		})
