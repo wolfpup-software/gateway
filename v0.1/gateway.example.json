@@ -1,9 +1,9 @@
 {
     "host": "127.0.0.1",
     "port": 4000,
-    "key": "./self-signed-key.key",
-    "cert": "./self-signed-cert.crt",
+    "key_filepath": "../demo/self-signed-key.key",
+    "cert_filepath": "../demo/self-signed-cert.crt",
     "addresses": {
-        "https://toshokan.org": "http://127.0.0.1:3000",
+        "https://toshokan.org": "http://127.0.0.1:3000"
     }
 }

@@ -1,12 +1,27 @@
+use std::collections;
 use std::env;
 use std::fmt;
 use std::fs;
 use std::path;
-use std::collections;
 
 use serde_json;
 use serde::{Serialize, Deserialize};
 
+pub enum ConfigError<'a> {
+	IoError(std::io::Error),
+	JsonError(serde_json::Error),
+	GenericError(&'a str),
+}
+
+impl fmt::Display for ConfigError<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    	match self {
+    		ConfigError::IoError(io_error) => write!(f, "{}", io_error),
+    		ConfigError::JsonError(json_error) => write!(f, "{}", json_error),
+    		ConfigError::GenericError(generic_error) => write!(f, "{}", generic_error),
+    	}
+    }
+}
 
 const CURR_DIR_NOT_FOUND: &str = "could not find working directory";
 const CONFIG_NOT_FOUND_ERR: &str = "no config parameters were found at location";
@@ -19,24 +34,6 @@ const FILEPATH_CERT_ERR: &str = "config did not include an existing cert flie";
 
 const PARENT_NOT_FOUND_ERR: &str = "parent directory of config not found";
 
-
-// consolidate structs into enums
-
-pub struct ConfigError {
-    message: String,
-}
-
-impl ConfigError {
-    pub fn new(msg: &str) -> ConfigError {
-        ConfigError { message: msg.to_string() }
-    }
-}
-
-impl fmt::Display for ConfigError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Config {
@@ -52,28 +49,28 @@ impl Config {
         // get position relative to working directory
         let working_dir = match env::current_dir() {
             Ok(pb) => pb,
-            _ => return Err(ConfigError::new(CURR_DIR_NOT_FOUND))
+            Err(e) => return Err(ConfigError::IoError(e)),
         };
         
         let config_pathbuff = match combine_pathbuf(&working_dir.to_path_buf(), filepath) {
             Ok(pb) => pb,
-            _ => return Err(ConfigError::new(CONFIG_NOT_FOUND_ERR)),
+            Err(e) => return Err(ConfigError::IoError(e)),
         };
 
         let parent_dir = match config_pathbuff.parent() {
             Some(p) => p.to_path_buf(),
-            _ => return Err(ConfigError::new(PARENT_NOT_FOUND_ERR))
+            _ => return Err(ConfigError::GenericError(PARENT_NOT_FOUND_ERR)),
         };
     
         // build json conifg
         let json_as_str = match fs::read_to_string(&config_pathbuff) {
             Ok(r) => r,
-            _ => return Err(ConfigError::new(JSON_FILE_ERR)),
+            Err(e) => return Err(ConfigError::IoError(e)),
         };
     
         let config: Config = match serde_json::from_str(&json_as_str) {
             Ok(j) => j,
-            _ => return Err(ConfigError::new(JSON_DESERIALIZE_FAILED_ERR)),
+            Err(e) => return Err(ConfigError::JsonError(e)),
         };
         
         // create key and cert with absolute filepaths from client config
@@ -82,16 +79,22 @@ impl Config {
             &config.key_filepath,
         ) {
             Ok(j) => j,
-            _ => return Err(ConfigError::new(FILEPATH_KEY_ERR)),
+            Err(e) => return Err(ConfigError::IoError(e)),
         };
+        if key.is_dir() {
+            return Err(ConfigError::GenericError(FILEPATH_KEY_ERR));
+        }
         
         let cert = match combine_pathbuf(
             &parent_dir,
             &config.cert_filepath,
         ) {
             Ok(j) => j,
-            _ => return Err(ConfigError::new(FILEPATH_CERT_ERR)),
+            Err(e) => return Err(ConfigError::IoError(e)),
         };
+        if cert.is_dir() {
+            return Err(ConfigError::GenericError(FILEPATH_CERT_ERR));
+        }
         
         Ok(Config {
             host: config.host,
@@ -111,12 +114,5 @@ fn combine_pathbuf(
     fp.push(filepath);
 
     fp.canonicalize()
-}
-
-pub fn config_to_string(config: &Config) -> Result<String, ConfigError> {
-    match serde_json::to_string(config) {
-        Ok(s) => Ok(s),
-        _ => Err(ConfigError::new(JSON_SERIALIZE_FAILED_ERR))
-    }
 }
 
