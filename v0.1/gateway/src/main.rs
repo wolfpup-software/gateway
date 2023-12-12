@@ -6,9 +6,13 @@ use std::io;
 use std::sync::Arc;
 
 use hyper::Uri;
+use hyper::server::conn::http1;
+use hyper_util::rt::TokioIo;
 use tokio::fs;
 use native_tls::{Identity, TlsAcceptor};
 use tokio::net::TcpListener;
+
+mod responses;
 
 use config;
 
@@ -85,21 +89,23 @@ async fn main() {
     	
     	// create service
     	
+    	let service = responses::Svc{
+    		addresses: addresses_arc.clone(),
+    	};
+  		let tls_stream = match tls_acceptor.accept(socket).await {
+  			Ok(s) => s,
+  			Err(e) => {
+  				println!("acceptor_error: {}", e);
+  				return;
+  			},
+  		};
+  		
+			let io = TokioIo::new(tls_stream);
+  		
     	tokio::task::spawn(async move {
-    		let tls_stream = match tls_acceptor.accept(socket).await {
-    			Ok(s) => s,
-    			Err(e) => {
-    				println!("acceptor_error: {}", e);
-    				return;
-    			},
-    		};
-    		
-    		
-    		/*
     		http1::Builder::new()
-    			.serve_connection(tls_stream, service)
+    			.serve_connection(io, service)
     			.await
-    		*/
     	});
     } 
 }
