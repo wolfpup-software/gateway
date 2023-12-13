@@ -28,12 +28,8 @@ impl Service<Request<IncomingBody>> for Svc {
 		
 		// get hashed uri destination
 		
-		// create request
-		
-		// if http, use http client
+		// if req uses http, use http client
 		// otherwise use https client
-		
-		// let dest = self.addresses.get(uri);
 		
 		Box::pin(async {
 		  response_500()
