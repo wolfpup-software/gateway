@@ -31,6 +31,12 @@ impl Service<Request<IncomingBody>> for Svc {
 		// if req uses http, use http client
 		// otherwise use https client
 		
+		// get request path and query
+		
+		// add to destnation path and query
+		
+		// send the actual request to new destination
+		
 		Box::pin(async {
 		  response_500()
 		})
