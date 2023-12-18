@@ -4,6 +4,8 @@
     "key_filepath": "../demo/self-signed-key.key",
     "cert_filepath": "../demo/self-signed-cert.crt",
     "addresses": {
-        "https://toshokan.org": "http://127.0.0.1:3000"
+        "toshokan.org:4000": "http://127.0.0.1:3000",
+        "www.toshokan.org:4000": "http://127.0.0.1:3000",
+        "localhost:4000": "http://127.0.0.1:3000"
     }
 }

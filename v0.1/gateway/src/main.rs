@@ -4,6 +4,7 @@ use std::path;
 use std::net;
 use std::io;
 use std::sync::Arc;
+use std::fmt;
 
 use http::Uri;
 use hyper_util::server::conn::auto::Builder;
@@ -27,40 +28,39 @@ use config;
 async fn main() {
     let args = match env::args().nth(1) {
         Some(a) => path::PathBuf::from(a),
-        None => return println!("argument error: no config params were found."),
+        None => return println!("argument error:\nconfig params not found."),
     };
 
     let config = match config::Config::from_filepath(&args) {
         Ok(c) => c,
-        Err(e) => return println!("configuration error: {}", e),
+        Err(e) => return println!("configuration error:\n{}", e),
     };
 
     let addresses = match create_address_map(&config) {
     	Ok(addrs) => addrs,
-    	Err(e) => return println!("address map error: {}", e),
+    	Err(e) => return println!("address map error:\n{}", e),
     };
     let addresses_arc = Arc::new(addresses);
-    println!("{:?}", addresses_arc);
     
     let cert = match fs::read(&config.cert_filepath).await {
     	Ok(f) => f,
-    	Err(e) => return println!("file error: {}", e),
+    	Err(e) => return println!("file error:\n{}", e),
     };
     
     let key = match fs::read(&config.key_filepath).await {
     	Ok(f) => f,
-    	Err(e) => return println!("file error: {}", e),
+    	Err(e) => return println!("file error:\n{}", e),
     };
 
     let pkcs8 = match Identity::from_pkcs8(&cert, &key) {
     	Ok(pk) => pk,
-    	Err(e) => return println!("cert error: {}", e),
+    	Err(e) => return println!("cert error:\n{}", e),
     };
 
 		let native_acceptor = match native_tls::TlsAcceptor::builder(pkcs8)
 			.build() {
 				Ok(accptr) => accptr,
-				Err(e) => return println!("native_acceptor: {}", e),
+				Err(e) => return println!("native_acceptor:\n{}", e),
 		};
 		
 		let tls_acceptor = tokio_native_tls::TlsAcceptor::from(native_acceptor);
@@ -68,17 +68,14 @@ async fn main() {
     let address = format!("{}:{}", config.host, config.port);
     let listener = match TcpListener::bind(address).await {
     	Ok(l) => l,
-    	Err(e) => return println!("tcp listener error {}", e),
+    	Err(e) => return println!("tcp listener error:\n{}", e),
     };
-    // make a service that references the addresses arc
-    
-    //
 
     loop {
 	    let (socket, remote_addr) = match listener.accept().await {
 	    	Ok(s) => s,
 	    	Err(e) => {
-	    		println!("socket error: {}", e);
+	    		println!("socket error:\n{}", e);
 	    		continue;
 	    	},
 	    };
@@ -87,7 +84,7 @@ async fn main() {
   		let tls_stream = match tls_acceptor.accept(socket).await {
   			Ok(s) => s,
   			Err(e) => {
-  				println!("acceptor_error: {}", e);
+  				println!("acceptor_error:\n{}", e);
   				continue;
   			},
   		};
@@ -105,21 +102,42 @@ async fn main() {
     } 
 }
 
-fn create_address_map(config: &config::Config) -> Result<collections::HashMap::<http::Uri, http::Uri>, <http::Uri as TryFrom<String>>::Error> {
-    // will need to verify hashmap values as uris as well, next step
-    let mut hashmap: collections::HashMap::<http::Uri, http::Uri> = collections::HashMap::new();
+// enum for both errors here
+
+pub enum ConfigParseError {
+	HeaderError(http::header::InvalidHeaderValue),
+	UriError(<http::Uri as TryFrom<String>>::Error),
+}
+
+impl fmt::Display for ConfigParseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    	match self {
+    		ConfigParseError::HeaderError(io_error) => write!(f, "{}", io_error),
+    		ConfigParseError::UriError(json_error) => write!(f, "{}", json_error),
+    	}
+    }
+}
+
+
+fn create_address_map(config: &config::Config) -> Result<collections::HashMap::<http::header::HeaderValue, http::Uri>, ConfigParseError> {
+    // will need to verify hashmap values as uris as well, do after mvp, input pruning / sanitizatio
+    let mut hashmap: collections::HashMap::<http::header::HeaderValue, http::Uri> = collections::HashMap::new();
     for (index, value) in config.addresses.iter() {
-    	// create uri
     	let index_uri = match http::Uri::try_from(index) {
     		Ok(uri) => uri,
-    		Err(e) => return Err(e),
+    		Err(e) => return Err(ConfigParseError::UriError(e)),
+    	};
+    	
+    	let index_header = match http::header::HeaderValue::try_from(index) {
+    		Ok(uri) => uri,
+    		Err(e) => return Err(ConfigParseError::HeaderError(e)),
     	};
     	let dest_uri = match http::Uri::try_from(value) {
     		Ok(uri) => uri,
-    		Err(e) => return Err(e),
+    		Err(e) => return Err(ConfigParseError::UriError(e)),
     	};
     	
-    	hashmap.insert(index_uri, dest_uri);
+    	hashmap.insert(index_header, dest_uri);
     }
     
     Ok(hashmap)
