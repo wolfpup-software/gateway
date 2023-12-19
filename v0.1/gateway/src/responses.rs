@@ -15,80 +15,65 @@ use tokio::net::TcpStream;
 const HTML: &str = "text/html; charset=utf-8";
 const INTERNAL_SERVER_ERROR: &str = "500 internal server error";
 
+/*
+	below gets host from req headers,
+	then uses host to get a cloned dest address from the arc'd address map.
+	
+	The req is declared as mutable
+	the req.uri is used to generate the path_and_query
+	
+	the path and query of the dest address is updated to include the path and query of
+	the original request
+	
+	the dest request is added to the URI of the original request
+	
+	that request is sent to the destination server
+	
+	 
+	$Potential Caveat	
+	In dev, the 'uri' of the request was only a path and query.
+	I forget if that's true in production.
+*/
+
 pub struct Svc {
 	pub addresses: Arc<HashMap<http::header::HeaderValue, http::Uri>>,
 }
 
 impl Service<Request<IncomingBody>> for Svc {
 	type Response = Response<BoxBody<bytes::Bytes, hyper::Error>>;
-	type Error = hyper::Error;
+	type Error = hyper::http::Error;
 	type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 	
 	fn call(&self, mut req: Request<IncomingBody>) -> Self::Future {
 		println!("{:?}", req);
-		let req_uri = req.uri();
-		let req_headers = req.headers();
-		println!("{:?}", req_uri);
-		println!("{:?}", req_headers.get("host"));
-		
-		
-		/*
-		what if we said:
-		give me these three conditions
-		Some(requested_uri), Some(dest_uri), ...
-		
-		then do a match
-		if this and that and the other {
-			return the box
-		}
-		
-		return 500
-		
-		
-		alternative:
-		descriptor is made available
-		"host" not provided
-		"
-		*/
-		
-		let requested_uri = match req_headers.get("host") {
+
+		let requested_uri = match req.headers().get("host") {
 			Some(uri) => uri,
 			_ => {
 				return Box::pin(async {
-					response_500()
+					// bad request
+					http_code_response(&StatusCode::INTERNAL_SERVER_ERROR, &INTERNAL_SERVER_ERROR)
 				}) 
 			},
 		};
 		
-		println!("{:?}", requested_uri);
-		println!("got a hashed uri");
-		let dest_uri = match self.addresses.get(&requested_uri) {
-			Some(sch) => sch,
+		let mut dest_parts = match self.addresses.get(&requested_uri) {
+			Some(sch) => sch.clone().into_parts(),
 			_ => {
+				// bad gateway
 				return Box::pin(async {
-					response_500()
+					http_code_response(&StatusCode::INTERNAL_SERVER_ERROR, &INTERNAL_SERVER_ERROR)
 				}) 
 			},
 		};
+		dest_parts.path_and_query = req.uri().path_and_query().cloned();
 
-		let pnq = match req_uri.path_and_query() {
-			Some(sch) => sch,
-			_ => {
-				return Box::pin(async {
-					response_500()
-				}) 
-			},
-		};
-		
-		println!("hashed a uri");
-		let mut dest_parts = dest_uri.clone().into_parts();
-		dest_parts.path_and_query = Some(pnq.clone());
-		
 		let composed_url = match http::Uri::from_parts(dest_parts) {
 			Ok(sch) => sch,
 			_ => {
 				return Box::pin(async {
-					response_500()
+					// bad gateway
+					http_code_response(&StatusCode::INTERNAL_SERVER_ERROR, &INTERNAL_SERVER_ERROR)
 				}) 
 			},
 		};
@@ -103,48 +88,46 @@ impl Service<Request<IncomingBody>> for Svc {
 
 		println!("REQ:\n{:?}", req);
 
+		// concatenate with no panics
     let host = req.uri().host().expect("uri has no host");
     let port = req.uri().port_u16().unwrap_or(80);
     let addr = format!("{}:{}", host, port);
     
     return Box::pin(async {
-      let client_stream = match TcpStream::connect(addr).await {
-  			Ok(sch) => sch,
-				_ => return response_500(),
+      let io = match TcpStream::connect(addr).await {
+  			Ok(sch) => TokioIo::new(sch),
+  			// unable to connect
+				_ => return http_code_response(&StatusCode::INTERNAL_SERVER_ERROR, &INTERNAL_SERVER_ERROR),
       };
-    	let io = TokioIo::new(client_stream);
     	
-
+    	// upgrade to use http
       let (mut sender, conn) = match hyper::client::conn::http1::handshake(io).await {
   			Ok(sch) => sch,
-				_ => return response_500(),
+  			// unable to handshake
+				_ => return http_code_response(&StatusCode::INTERNAL_SERVER_ERROR, &INTERNAL_SERVER_ERROR),
       };
 
       tokio::task::spawn(async move {
-				if let Err(err) = conn.await {
-						println!("Connection failed: {:?}", err);
-				}
+				if let Err(err) = conn.await { /* log connection, return gateway 502 or 504 */ }
 			});
 			
-	    match sender.send_request(req).await {
-				Ok(sch) => return Ok(sch.map(|b| b.boxed())),
-				_ => return response_500(),
+	    if let Ok(r) = sender.send_request(req).await {
+				return Ok(r.map(|b| b.boxed()));
 	    };
+	    
+	    // 502
+	    http_code_response(&StatusCode::INTERNAL_SERVER_ERROR, &INTERNAL_SERVER_ERROR)
     });
 	}
 }
 
-fn response_500() -> Result<Response<BoxBody<bytes::Bytes, hyper::Error>>, hyper::Error> {
-	let mut res = Response::new(Full::new(INTERNAL_SERVER_ERROR.into()).map_err(|e| match e {}).boxed());
-	
-	*res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
-	Ok(res)
-	
-	/*
+// 502 bad gateway
+// 400 bad request (malformed request)
+// 
+fn http_code_response(code: &StatusCode, po: &'static str) -> Result<Response<BoxBody<bytes::Bytes, hyper::Error>>, hyper::http::Error> {
 	Response::builder()
-		.status(StatusCode::INTERNAL_SERVER_ERROR)
+		.status(code)
 		.header(CONTENT_TYPE, HeaderValue::from_static(HTML))
-		.body(Full::new(INTERNAL_SERVER_ERROR.into()).map_err(|e| match e {}).boxed())
-		*/
+		.body(Full::new(bytes::Bytes::from(po)).map_err(|e| match e {}).boxed())
 }
 
