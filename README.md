@@ -1,9 +1,17 @@
 # gateway
 
-Traffic https requests to local services
+route encrypted requests for multiple domains to multiple endpoints
 
 ## abstract
 
-Decrypt https requests before deploying to local services. This avoids decrypting at every service point and avoids services being aware of certificates.
+The requirement was to route external requests to local services through SSL / TLS / https.
+The result can serve multiple domains on a single server.
 
-This server is meant to be the single point at 443 and 80.
+Destination servers can be local, remote, or encrypted. But the intention was to
+route external requests to local services
+
+A gateway encapsulates a server through a chosen port 443 by default.
+Requests are routed to a server based on the URI authority or host header
+
+
+

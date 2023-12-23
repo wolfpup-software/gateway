@@ -7,6 +7,8 @@ use std::path;
 use serde_json;
 use serde::{Serialize, Deserialize};
 
+
+// make this an actual error?
 pub enum ConfigError<'a> {
 	IoError(std::io::Error),
 	JsonError(serde_json::Error),
