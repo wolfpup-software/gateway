@@ -11,6 +11,11 @@ use hyper::body::{Incoming as IncomingBody};
 use hyper::service::Service;
 use hyper_util::rt::TokioIo;
 
+use hyper_util::client::legacy::Client;
+use hyper_util::rt::TokioExecutor;
+
+use native_tls::{Identity, TlsAcceptor, TlsConnector};
+
 use tokio::net::TcpStream;
 
 const HTML: &str = "text/html; charset=utf-8";
@@ -51,12 +56,10 @@ fn http_code_response(
 	 
 	$Potential Caveat	
 	In dev, the 'uri' of the request was only a path and query.
-	I forget if that's true in production.
+	I forget if that's true in production for most other libraries.
 	
-	- if http schema than http connector
-	- if https schema than https
+	
 */
-
 
 pub struct Svc {
 	pub addresses: Arc<HashMap<http::header::HeaderValue, http::Uri>>,
@@ -70,6 +73,11 @@ impl Service<Request<IncomingBody>> for Svc {
 	fn call(&self, mut req: Request<IncomingBody>) -> Self::Future {
 		println!("{:?}", req);
 
+		// the following three sections can be done in one function
+		// try a result that is Result<URI, Response>
+		//
+		// uri interpretation in separate function
+		// digest requested uri
 		let requested_uri = match req.headers().get("host") {
 			Some(uri) => uri,
 			_ => {
@@ -80,7 +88,9 @@ impl Service<Request<IncomingBody>> for Svc {
 			},
 		};
 		
-		// combine destination uri with
+		// uri generation in separate function
+		// return None if URI's don't match
+		// return URI if complete
 		let dest_parts = match self.addresses.get(&requested_uri) {
 			Some(sch) => {
 				let mut parts = sch.clone().into_parts();
@@ -100,14 +110,12 @@ impl Service<Request<IncomingBody>> for Svc {
 			_ => {
 				return Box::pin(async {
 					// bad gateway
-					http_code_response(&StatusCode::BAD_REQUEST, &INTERNAL_SERVER_ERROR)
+					http_code_response(&StatusCode::BAD_GATEWAY, &INTERNAL_SERVER_ERROR)
 				}) 
 			},
 		};
 		println!("{:?}", composed_url);
 		
-		
-		// now send request
 		
 		// add new uri to req
 		*req.uri_mut() = composed_url;
@@ -116,6 +124,10 @@ impl Service<Request<IncomingBody>> for Svc {
 
 		println!("REQ:\n{:?}", req);
 
+
+		// get in separate function
+		// if none return function
+		
 		// concatenate with no panics
     let host = req.uri().host().expect("uri has no host");
     // bail if no host
@@ -144,29 +156,118 @@ impl Service<Request<IncomingBody>> for Svc {
     // return a "bad gateway"
     
     let addr = format!("{}:{}", host, port);
-    
     // bail here too
     
-    return Box::pin(async {
-      let io = match TcpStream::connect(addr).await {
+    return Box::pin(async move {
+
+    	
+    	// upgrade to use https
+    	//
+    	// https connector uses http by default
+    	// legacy client determines http2 or 1
+    	// the legacy client seems overwhelming
+    	// would rather default on version
+    	//
+    	// get client based on req vers
+    	// create tokio socket io based on scheme
+    	
+    	/*
+    	the legacy client way
+	    let https = HttpsConnector::new();
+      let client = Client::builder(TokioExecutor::new()).build::<_, BoxBody<bytes::Bytes, hyper::Error>>(https);
+      if let Ok(resp) = client.request(req).await {
+      	return Ok(resp.map(|b| b.boxed()));
+      }
+      */
+      
+      // get TLS or TCP steam based on http or https
+      // Result<steam, http_code_response>
+
+      
+      let io = match TcpStream::connect(&addr).await {
   			Ok(client_stream) => TokioIo::new(client_stream),
   			// unable to connect
 				_ => return http_code_response(&StatusCode::INTERNAL_SERVER_ERROR, &INTERNAL_SERVER_ERROR),
       };
-    	
-    	// upgrade to use http
-    	//
-    	// https connector uses http by default
-    	// legacy client determines http2 or 1
+ 
+      
+      // do we do https io or not
+			match req.uri().scheme() {
+				Some(s) => {
+					// call a function that takes in and req
+					// tokio tls connector
+			    // let socket = TcpStream::connect(&addr).await?;
+					// let cx = TlsConnector::builder().build()?;
+					// let cx = tokio_native_tls::TlsConnector::from(cx);
+					// let mut socket = cx.connect("www.rust-lang.org", socket).await?
+				}
+				_ => {},
+			};
+			
+      
+      // this is for http2 connectiopns
+      let client_stream = match TcpStream::connect(&addr).await {
+  			Ok(s) => s,
+  			// unable to connect
+				_ => return http_code_response(&StatusCode::INTERNAL_SERVER_ERROR, &INTERNAL_SERVER_ERROR),
+      };
+      
+      let cx = match TlsConnector::builder().build() {
+  			Ok(s) => s,
+  			// unable to connect
+				_ => return http_code_response(&StatusCode::INTERNAL_SERVER_ERROR, &INTERNAL_SERVER_ERROR),
+      };
+    	let tls_io = tokio_native_tls::TlsConnector::from(cx);
+    	let host = match req.uri().host() {
+  			Some(s) => s,
+  			// unable to connect
+				_ => return http_code_response(&StatusCode::INTERNAL_SERVER_ERROR, &INTERNAL_SERVER_ERROR),
+      };
+      
+    	let socket = match tls_io.connect(host, client_stream).await {
+  			Ok(s) => TokioIo::new(s),
+  			// unable to connect
+				_ => return http_code_response(&StatusCode::INTERNAL_SERVER_ERROR, &INTERNAL_SERVER_ERROR),
+      };
+      
+      let (mut client, client_conn) = match hyper::client::conn::http2::handshake(TokioExecutor::new(), socket).await {
+  			Ok(handshake) => handshake,
+  			// unable to handshake
+				_ => return http_code_response(&StatusCode::INTERNAL_SERVER_ERROR, &INTERNAL_SERVER_ERROR),
+      };
+      
+      tokio::task::spawn(async move {
+				if let Err(err) = client_conn.await {
+					/* log connection error */
+				}
+			});
+			
+      let resp = match client.send_request(req).await {
+  			Ok(res) => {
+					return Ok(res.map(|b| b.boxed()));
+  			},
+  			// unable to handshake
+				_ => return http_code_response(&StatusCode::INTERNAL_SERVER_ERROR, &INTERNAL_SERVER_ERROR),
+      };
+      
+			/*
+			
+			// valid http1 code
+      // https://github.com/hyperium/h2/blob/master/examples/client.rs
       let (mut sender, conn) = match hyper::client::conn::http1::handshake(io).await {
   			Ok(handshake) => handshake,
   			// unable to handshake
 				_ => return http_code_response(&StatusCode::INTERNAL_SERVER_ERROR, &INTERNAL_SERVER_ERROR),
       };
 
+      
+      // the goal is to get connectors provided by tokio if the scheme is https or https
+      // and retrive a sender and a connection depending if connection is http1.1 or http2
+      
+
       tokio::task::spawn(async move {
 				if let Err(err) = conn.await {
-					/* log connection, return gateway 502 or 504 */
+					/* log connection error */
 				}
 			});
 			
@@ -174,9 +275,10 @@ impl Service<Request<IncomingBody>> for Svc {
 	    if let Ok(r) = sender.send_request(req).await {
 				return Ok(r.map(|b| b.boxed()));
 	    };
+	    */
 	    
 	    // 502
-	    http_code_response(&StatusCode::BAD_GATEWAY, &INTERNAL_SERVER_ERROR)
+	    // http_code_response(&StatusCode::BAD_GATEWAY, &INTERNAL_SERVER_ERROR)
     });
 	}
 }

@@ -113,7 +113,7 @@ async fn main() {
     let (socket, _remote_addr) = match listener.accept().await {
     	Ok(s) => s,
     	Err(e) => {
-    		println!("socket error:\n{}", e);
+				// log socket error
     		continue;
     	},
     };
@@ -121,7 +121,7 @@ async fn main() {
 		let io = match tls_acceptor.clone().accept(socket).await {
 			Ok(s) => TokioIo::new(s),
 			Err(e) => {
-				println!("acceptor_error:\n{}", e);
+				// log tls error
 				continue;
 			},
 		};
@@ -131,6 +131,7 @@ async fn main() {
   	};
   	
   	tokio::task::spawn(async move {
+  		// log response error
   		Builder::new(TokioExecutor::new())
   			.serve_connection(io, service)
   			.await
