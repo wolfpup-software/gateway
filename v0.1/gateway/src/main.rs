@@ -1,16 +1,13 @@
 use std::collections;
 use std::env;
 use std::path;
-use std::net;
-use std::io;
 use std::sync::Arc;
 use std::fmt;
 
-use http::Uri;
 use hyper_util::server::conn::auto::Builder;
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use tokio::fs;
-use native_tls::{Identity, TlsAcceptor};
+use native_tls::{Identity};
 use tokio::net::TcpListener;
 
 mod responses;
@@ -32,32 +29,30 @@ impl fmt::Display for ConfigParseError {
   }
 }
 
-
 fn create_address_map(config: &config::Config) -> Result<collections::HashMap::<http::header::HeaderValue, http::Uri>, ConfigParseError> {
-    // will need to verify hashmap values as uris as well, do after mvp, input pruning / sanitizatio
-    let mut hashmap: collections::HashMap::<http::header::HeaderValue, http::Uri> = collections::HashMap::new();
-    // separate into two functions? should be same amount of operations
-    for (index, value) in config.addresses.iter() {
-    	// this is separate
-    	let index_uri = match http::Uri::try_from(index) {
-    		Ok(uri) => uri,
-    		Err(e) => return Err(ConfigParseError::UriError(e)),
-    	};
-    	
-    	// this is separate from
-    	let index_header = match http::header::HeaderValue::try_from(index) {
-    		Ok(uri) => uri,
-    		Err(e) => return Err(ConfigParseError::HeaderError(e)),
-    	};
-    	let dest_uri = match http::Uri::try_from(value) {
-    		Ok(uri) => uri,
-    		Err(e) => return Err(ConfigParseError::UriError(e)),
-    	};
-    	
-    	hashmap.insert(index_header, dest_uri);
-    }
-    
-    Ok(hashmap)
+  // will need to verify hashmap values as uris as well, do after mvp, input pruning / sanitizatio
+  let mut hashmap: collections::HashMap::<http::header::HeaderValue, http::Uri> = collections::HashMap::new();
+  // separate into two functions? should be same amount of operations
+  for (index, value) in config.addresses.iter() {
+  	// this is separate
+  	if let Err(err) = http::Uri::try_from(index) {
+  		return Err(ConfigParseError::UriError(err));
+  	};
+  	
+  	// this is separate from
+  	let index_header = match http::header::HeaderValue::try_from(index) {
+  		Ok(uri) => uri,
+  		Err(e) => return Err(ConfigParseError::HeaderError(e)),
+  	};
+  	let dest_uri = match http::Uri::try_from(value) {
+  		Ok(uri) => uri,
+  		Err(e) => return Err(ConfigParseError::UriError(e)),
+  	};
+  	
+  	hashmap.insert(index_header, dest_uri);
+  }
+  
+  Ok(hashmap)
 }
 
 #[tokio::main]
@@ -112,7 +107,7 @@ async fn main() {
   loop {
     let (socket, _remote_addr) = match listener.accept().await {
     	Ok(s) => s,
-    	Err(e) => {
+    	Err(_e) => {
 				// log socket error
     		continue;
     	},
@@ -120,7 +115,7 @@ async fn main() {
     
 		let io = match tls_acceptor.clone().accept(socket).await {
 			Ok(s) => TokioIo::new(s),
-			Err(e) => {
+			Err(_e) => {
 				// log tls error
 				continue;
 			},
