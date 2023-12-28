@@ -6,6 +6,6 @@
     "addresses": {
         "toshokan.org:4000": "http://127.0.0.1:3000",
         "www.toshokan.org:4000": "http://127.0.0.1:3000",
-        "localhost:4000": "http://127.0.0.1:3000"
+        "localhost:4000": "https://toshokan.org:4000"
     }
 }
