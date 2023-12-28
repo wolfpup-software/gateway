@@ -40,11 +40,6 @@ type BoxedResponse = Response<
 	the dest request is added to the URI of the original request
 	
 	that request is sent to the destination server
-	
-	 
-	$Potential Caveat	
-	In dev, the 'uri' of the request was only a path and query.
-	I forget if that's true in production for most other libraries.
 */
 
 pub struct Svc {
@@ -77,7 +72,6 @@ impl Service<Request<Incoming>> for Svc {
 				}) 
 			},
 		};
-		println!("{:?}", composed_url);
 
 		// add new uri to req
 		*req.uri_mut() = composed_url;
@@ -244,7 +238,6 @@ async fn request_http1_tls_response(req: Request<Incoming>) -> Result<
 	BoxedResponse,
 	http::Error
 > {
-	println!("making http1 tls request");
 	let (host, addr) = create_address(&req);
 	
   let io = match create_tls_stream(&host, &addr).await {
@@ -252,13 +245,13 @@ async fn request_http1_tls_response(req: Request<Incoming>) -> Result<
 		// unable to connect
 		_ => return http_code_response(&StatusCode::INTERNAL_SERVER_ERROR, &INTERNAL_SERVER_ERROR),
   };
-	println!("connected");
+
   let (mut sender, conn) = match http1::handshake(io).await {
 		Ok(handshake) => handshake,
 		// unable to handshake
 		_ => return http_code_response(&StatusCode::INTERNAL_SERVER_ERROR, &INTERNAL_SERVER_ERROR),
   };
-	println!("handshake!");
+
   tokio::task::spawn(async move {
 		if let Err(_err) = conn.await {
 			/* log connection error */

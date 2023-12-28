@@ -47,65 +47,65 @@ pub struct Config {
 }
 // convert this into a URI
 impl Config {
-    pub fn from_filepath(filepath: &path::PathBuf) -> Result<Config, ConfigError> {
-        // get position relative to working directory
-        let working_dir = match env::current_dir() {
-            Ok(pb) => pb,
-            Err(e) => return Err(ConfigError::IoError(e)),
-        };
-        
-        let config_pathbuff = match combine_pathbuf(&working_dir.to_path_buf(), filepath) {
-            Ok(pb) => pb,
-            Err(e) => return Err(ConfigError::IoError(e)),
-        };
+  pub fn from_filepath(filepath: &path::PathBuf) -> Result<Config, ConfigError> {
+    // get position relative to working directory
+    let working_dir = match env::current_dir() {
+        Ok(pb) => pb,
+        Err(e) => return Err(ConfigError::IoError(e)),
+    };
+    
+    let config_pathbuff = match combine_pathbuf(&working_dir.to_path_buf(), filepath) {
+        Ok(pb) => pb,
+        Err(e) => return Err(ConfigError::IoError(e)),
+    };
 
-        let parent_dir = match config_pathbuff.parent() {
-            Some(p) => p.to_path_buf(),
-            _ => return Err(ConfigError::GenericError(PARENT_NOT_FOUND_ERR)),
-        };
+    let parent_dir = match config_pathbuff.parent() {
+        Some(p) => p.to_path_buf(),
+        _ => return Err(ConfigError::GenericError(PARENT_NOT_FOUND_ERR)),
+    };
+
+    // build json conifg
+    let json_as_str = match fs::read_to_string(&config_pathbuff) {
+        Ok(r) => r,
+        Err(e) => return Err(ConfigError::IoError(e)),
+    };
+
+    let config: Config = match serde_json::from_str(&json_as_str) {
+        Ok(j) => j,
+        Err(e) => return Err(ConfigError::JsonError(e)),
+    };
     
-        // build json conifg
-        let json_as_str = match fs::read_to_string(&config_pathbuff) {
-            Ok(r) => r,
-            Err(e) => return Err(ConfigError::IoError(e)),
-        };
-    
-        let config: Config = match serde_json::from_str(&json_as_str) {
-            Ok(j) => j,
-            Err(e) => return Err(ConfigError::JsonError(e)),
-        };
-        
-        // create key and cert with absolute filepaths from client config
-        let key = match combine_pathbuf(
-            &parent_dir,
-            &config.key_filepath,
-        ) {
-            Ok(j) => j,
-            Err(e) => return Err(ConfigError::IoError(e)),
-        };
-        if key.is_dir() {
-            return Err(ConfigError::GenericError(FILEPATH_KEY_ERR));
-        }
-        
-        let cert = match combine_pathbuf(
-            &parent_dir,
-            &config.cert_filepath,
-        ) {
-            Ok(j) => j,
-            Err(e) => return Err(ConfigError::IoError(e)),
-        };
-        if cert.is_dir() {
-            return Err(ConfigError::GenericError(FILEPATH_CERT_ERR));
-        }
-        
-        Ok(Config {
-            host: config.host,
-            port: config.port,
-            key_filepath: key,
-            cert_filepath: cert,
-            addresses: config.addresses,
-        })
+    // create key and cert with absolute filepaths from client config
+    let key = match combine_pathbuf(
+        &parent_dir,
+        &config.key_filepath,
+    ) {
+        Ok(j) => j,
+        Err(e) => return Err(ConfigError::IoError(e)),
+    };
+    if key.is_dir() {
+        return Err(ConfigError::GenericError(FILEPATH_KEY_ERR));
     }
+    
+    let cert = match combine_pathbuf(
+        &parent_dir,
+        &config.cert_filepath,
+    ) {
+        Ok(j) => j,
+        Err(e) => return Err(ConfigError::IoError(e)),
+    };
+    if cert.is_dir() {
+        return Err(ConfigError::GenericError(FILEPATH_CERT_ERR));
+    }
+    
+    Ok(Config {
+        host: config.host,
+        port: config.port,
+        key_filepath: key,
+        cert_filepath: cert,
+        addresses: config.addresses,
+    })
+	}
 }
 
 fn combine_pathbuf(
