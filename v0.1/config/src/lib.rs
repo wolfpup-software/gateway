@@ -45,6 +45,7 @@ pub struct Config {
     pub cert_filepath: path::PathBuf,
     pub addresses: collections::HashMap<String, String>,
 }
+
 // convert this into a URI
 impl Config {
   pub fn from_filepath(filepath: &path::PathBuf) -> Result<Config, ConfigError> {

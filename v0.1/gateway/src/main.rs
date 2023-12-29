@@ -29,9 +29,11 @@ impl fmt::Display for ConfigParseError {
   }
 }
 
-fn create_address_map(config: &config::Config) -> Result<collections::HashMap::<http::header::HeaderValue, http::Uri>, ConfigParseError> {
+// hash map needs to be string or uri
+// if string
+fn create_address_map(config: &config::Config) -> Result<collections::HashMap::<String, http::Uri>, ConfigParseError> {
   // will need to verify hashmap values as uris as well, do after mvp, input pruning / sanitizatio
-  let mut hashmap: collections::HashMap::<http::header::HeaderValue, http::Uri> = collections::HashMap::new();
+  let mut hashmap: collections::HashMap::<String, http::Uri> = collections::HashMap::new();
   // separate into two functions? should be same amount of operations
   for (index, value) in config.addresses.iter() {
   	// this is separate
@@ -39,17 +41,13 @@ fn create_address_map(config: &config::Config) -> Result<collections::HashMap::<
   		return Err(ConfigParseError::UriError(err));
   	};
   	
-  	// this is separate from
-  	let index_header = match http::header::HeaderValue::try_from(index) {
-  		Ok(uri) => uri,
-  		Err(e) => return Err(ConfigParseError::HeaderError(e)),
-  	};
+
   	let dest_uri = match http::Uri::try_from(value) {
   		Ok(uri) => uri,
   		Err(e) => return Err(ConfigParseError::UriError(e)),
   	};
   	
-  	hashmap.insert(index_header, dest_uri);
+  	hashmap.insert(index.clone(), dest_uri);
   }
   
   Ok(hashmap)
