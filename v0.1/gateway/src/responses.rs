@@ -42,7 +42,7 @@ type BoxedResponse = Response<
 */
 
 pub struct Svc {
-	pub addresses: Arc<HashMap<String, (http::Uri, String, String)>>,
+	pub addresses: Arc<HashMap<String, http::Uri>>,
 }
 
 impl Service<Request<Incoming>> for Svc {
@@ -53,7 +53,7 @@ impl Service<Request<Incoming>> for Svc {
 	fn call(&self, mut req: Request<Incoming>) -> Self::Future {
 		println!("{:?}", req);
 		// acount for http1 and http2 headers
-		let requested_uri = match get_uri_from_host_or_authority(&req, &self.addresses) {
+		let requested_uri = match get_uri_from_host_or_authority(&req) {
 			Some(uri) => uri,
 			_ => {
 				return Box::pin(async {
@@ -66,7 +66,7 @@ impl Service<Request<Incoming>> for Svc {
 		// can get host and addr here as well, no need to generate it
 		// clone move on
 
-		let (composed_url, host, addr) = match create_dest_uri(&req, &self.addresses, &requested_uri) {
+		let composed_url = match create_dest_uri(&req, &self.addresses, &requested_uri) {
 			Some(uri) => uri,
 			_ => {
 				return Box::pin(async {
@@ -74,9 +74,7 @@ impl Service<Request<Incoming>> for Svc {
 				}) 
 			},
 		};
-		
-		println!("{}\n{}\n{}", composed_url, host, addr);
-
+		println!("{:?}", composed_url);
 		// mutate req with composed_url
 		// "X-Forwared-For" could be added here
 		*req.uri_mut() = composed_url;
@@ -91,16 +89,16 @@ impl Service<Request<Incoming>> for Svc {
 
 			match (version, scheme) {
 				(hyper::Version::HTTP_2, "https") => {
-					request_http2_tls_response(req, host, addr).await
+					request_http2_tls_response(req).await
 				},
 				(hyper::Version::HTTP_2, "http") => {
-					request_http2_response(req, addr).await
+					request_http2_response(req).await
 				},
 				(_, "https") => {
-					request_http1_tls_response(req, &host, addr).await
+					request_http1_tls_response(req).await
 				},
 				_ => {
-					request_http1_response(req, addr).await
+					request_http1_response(req).await
 				},
 			}
     });
@@ -122,15 +120,12 @@ fn http_code_response(
 // string vs host
 fn get_uri_from_host_or_authority(
 	req: &Request<Incoming>,
-	addresses: &collections::HashMap::<String, (http::Uri, String, String)>,
 ) -> Option<String> {
-	// http 2
 	if req.version() == hyper::Version::HTTP_2 {
 		let host = req.uri().host()?.to_string();
 		return Some(host.to_string());
 	}
 
-	// else
   let host_str = match req.headers().get("host") {
   	Some(h) => {
   		match h.to_str() {
@@ -154,25 +149,25 @@ fn get_uri_from_host_or_authority(
 
 fn create_dest_uri(
 	req: &Request<Incoming>,
-	addresses: &collections::HashMap::<String, (http::Uri, String, String)>,
+	addresses: &collections::HashMap::<String, http::Uri>,
 	uri: &str,
-) -> Option<(http::Uri, String, String)> {
-	let (dest_uri, host, addr) = match addresses.get(uri) {
-		Some(dest_uri) => dest_uri,
+) -> Option<http::Uri> {
+	let dest_parts = match addresses.get(uri) {
+		Some(dest_uri) => {
+			let mut parts = dest_uri.clone().into_parts();
+			parts.path_and_query = req.uri().path_and_query().cloned();
+			parts
+		},
 		_ => return None,
 	};
-	
-	let mut parts = dest_uri.clone().into_parts();
-	parts.path_and_query = req.uri().path_and_query().cloned();
 
-	match http::Uri::from_parts(parts) {
-		Ok(uri) => Some((uri, host.clone(), addr.clone())),
+	match http::Uri::from_parts(dest_parts) {
+		Ok(uri) => Some(uri),
 		_ => None,
 	}
 }
 
 // this should be an error
-// this function shouldn't have to change
 fn create_address(req: &Request<Incoming>) -> (String, String) {
 	let host = match req.uri().host() {
 		Some(h) => h.to_string(),
@@ -204,10 +199,7 @@ async fn create_tcp_stream(addr: &str) -> Option<TokioIo<TcpStream>> {
   }
 }
 
-async fn create_tls_stream(
-	host: &str,
-	addr: &str,
-) -> Option<TokioIo<tokio_native_tls::TlsStream<TcpStream>>> {
+async fn create_tls_stream(host: &str, addr: &str) -> Option<TokioIo<tokio_native_tls::TlsStream<TcpStream>>> {
   let tls_connector = match TlsConnector::new() {
 		Ok(cx) => tokio_native_tls::TlsConnector::from(cx),
 		_ => return None,
@@ -228,11 +220,11 @@ async fn create_tls_stream(
 
 async fn request_http1_response(
 	req: Request<Incoming>,
-	addr: String,
 ) -> Result<
 	BoxedResponse,
 	http::Error
 > {
+	let (_, addr) = create_address(&req);
 
   let io = match create_tcp_stream(&addr).await {
 		Some(stream) => stream,
@@ -259,14 +251,13 @@ async fn request_http1_response(
 
 async fn request_http1_tls_response(
 	req: Request<Incoming>,
-	host: &str,
-	addr: String,
 ) -> Result<
 	BoxedResponse,
 	http::Error
 > {
+	let (host, addr) = create_address(&req);
 	
-  let io = match create_tls_stream(host, &addr).await {
+  let io = match create_tls_stream(&host, &addr).await {
 		Some(stream) => stream,
 		_ => return http_code_response(&StatusCode::INTERNAL_SERVER_ERROR, &INTERNAL_SERVER_ERROR),
   };
@@ -291,11 +282,12 @@ async fn request_http1_tls_response(
 
 async fn request_http2_response(
 	req: Request<Incoming>,
-	addr: String,
 ) -> Result<
 	BoxedResponse,
 	http::Error
 > {
+	let (_, addr) = create_address(&req);
+
   let io = match create_tcp_stream(&addr).await {
 		Some(stream) => stream,
 		_ => return http_code_response(&StatusCode::INTERNAL_SERVER_ERROR, &INTERNAL_SERVER_ERROR),
@@ -321,12 +313,11 @@ async fn request_http2_response(
 
 async fn request_http2_tls_response(
 	req: Request<Incoming>,
-	host: String,
-	addr: String,
 ) -> Result<
 	BoxedResponse,
 	http::Error
 > {
+	let (host, addr) = create_address(&req);
   let io = match create_tls_stream(&host, &addr).await {
 		Some(stream) => stream,
 		_ => return http_code_response(&StatusCode::INTERNAL_SERVER_ERROR, &INTERNAL_SERVER_ERROR),

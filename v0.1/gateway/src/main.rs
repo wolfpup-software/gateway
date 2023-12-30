@@ -14,14 +14,6 @@ mod responses;
 
 use config;
 
-// scheme and authority does not change
-// can clone all of these, would a touple (uri, host, port) suffice?
-
-pub struct BuiltUri {
-	uri: http::Uri,
-	host: String,
-	port: String,
-}
 
 pub enum ConfigParseError<'a> {
 	HeaderError(http::header::InvalidHeaderValue),
@@ -41,9 +33,9 @@ impl fmt::Display for ConfigParseError<'_>  {
 
 // hash map needs to be string or uri
 // if string
-fn create_address_map(config: &config::Config) -> Result<collections::HashMap::<String, (http::Uri, String, String)>, ConfigParseError> {
+fn create_address_map(config: &config::Config) -> Result<collections::HashMap::<String, http::Uri>, ConfigParseError> {
   // will need to verify hashmap values as uris as well, do after mvp, input pruning / sanitizatio
-  let mut hashmap: collections::HashMap::<String, (http::Uri, String, String)> = collections::HashMap::new();
+  let mut hashmap: collections::HashMap::<String, http::Uri> = collections::HashMap::new();
   // separate into two functions? should be same amount of operations
   for (index, value) in config.addresses.iter() {
   	// this is separate
@@ -54,37 +46,15 @@ fn create_address_map(config: &config::Config) -> Result<collections::HashMap::<
   	
   	let host = match index_uri.host() {
 			Some(uri) => uri,
-			_ => return Err(ConfigParseError::Error("did not find authority")),
+			_ => return Err(ConfigParseError::Error("did not find host in uri")),
 		};
 		
-  	let port = match index_uri.port() {
-			Some(uri) => uri,
-			_ => return Err(ConfigParseError::Error("did not find authority")),
-		};
-		// create address here
-		
-		let addr = host.clone().to_string() + ":" + port.as_str();
-		
-
   	let dest_uri = match http::Uri::try_from(value) {
   		Ok(uri) => uri,
   		Err(e) => return Err(ConfigParseError::UriError(e)),
   	};
   	
-  	let dest_uri_clone = dest_uri.clone();
-  	
-  	let dest_host = match dest_uri.host() {
-			Some(uri) => uri,
-			_ => return Err(ConfigParseError::Error("did not find authority")),
-		};
-		
-  	let dest_port = match dest_uri.port() {
-			Some(uri) => uri,
-			_ => return Err(ConfigParseError::Error("did not find authority")),
-		};
-		let dest_addr = dest_host.clone().to_string() + ":" + dest_port.as_str();
-		
-  	hashmap.insert(host.to_string(), (dest_uri.clone(), dest_host.to_string(), dest_addr));
+  	hashmap.insert(host.to_string(), dest_uri);
   }
   
   Ok(hashmap)
@@ -115,7 +85,7 @@ async fn main() {
   	Err(e) => return println!("address map error:\n{}", e),
   };
   let addresses_arc = Arc::new(addresses);
-  
+  println!("{:?}", addresses_arc);
   // tls acceptor
   let cert = match fs::read(&config.cert_filepath).await {
   	Ok(f) => f,
