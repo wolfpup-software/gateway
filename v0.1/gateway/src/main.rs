@@ -14,40 +14,77 @@ mod responses;
 
 use config;
 
+// scheme and authority does not change
+// can clone all of these, would a touple (uri, host, port) suffice?
 
-pub enum ConfigParseError {
-	HeaderError(http::header::InvalidHeaderValue),
-	UriError(<http::Uri as TryFrom<String>>::Error),
+pub struct BuiltUri {
+	uri: http::Uri,
+	host: String,
+	port: String,
 }
 
-impl fmt::Display for ConfigParseError {
+pub enum ConfigParseError<'a> {
+	HeaderError(http::header::InvalidHeaderValue),
+	UriError(<http::Uri as TryFrom<String>>::Error),
+	Error(&'a str),
+}
+
+impl fmt::Display for ConfigParseError<'_>  {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
   	match self {
   		ConfigParseError::HeaderError(io_error) => write!(f, "{}", io_error),
   		ConfigParseError::UriError(json_error) => write!(f, "{}", json_error),
+  		ConfigParseError::Error(error) => write!(f, "{}", error),
   	}
   }
 }
 
 // hash map needs to be string or uri
 // if string
-fn create_address_map(config: &config::Config) -> Result<collections::HashMap::<String, http::Uri>, ConfigParseError> {
+fn create_address_map(config: &config::Config) -> Result<collections::HashMap::<String, (http::Uri, String, String)>, ConfigParseError> {
   // will need to verify hashmap values as uris as well, do after mvp, input pruning / sanitizatio
-  let mut hashmap: collections::HashMap::<String, http::Uri> = collections::HashMap::new();
+  let mut hashmap: collections::HashMap::<String, (http::Uri, String, String)> = collections::HashMap::new();
   // separate into two functions? should be same amount of operations
   for (index, value) in config.addresses.iter() {
   	// this is separate
-  	if let Err(err) = http::Uri::try_from(index) {
-  		return Err(ConfigParseError::UriError(err));
+  	let index_uri = match http::Uri::try_from(index) {
+  		Ok(uri) => uri,
+  		Err(e) => return Err(ConfigParseError::UriError(e)),
   	};
   	
+  	let host = match index_uri.host() {
+			Some(uri) => uri,
+			_ => return Err(ConfigParseError::Error("did not find authority")),
+		};
+		
+  	let port = match index_uri.port() {
+			Some(uri) => uri,
+			_ => return Err(ConfigParseError::Error("did not find authority")),
+		};
+		// create address here
+		
+		let addr = host.clone().to_string() + ":" + port.as_str();
+		
 
   	let dest_uri = match http::Uri::try_from(value) {
   		Ok(uri) => uri,
   		Err(e) => return Err(ConfigParseError::UriError(e)),
   	};
   	
-  	hashmap.insert(index.clone(), dest_uri);
+  	let dest_uri_clone = dest_uri.clone();
+  	
+  	let dest_host = match dest_uri.host() {
+			Some(uri) => uri,
+			_ => return Err(ConfigParseError::Error("did not find authority")),
+		};
+		
+  	let dest_port = match dest_uri.port() {
+			Some(uri) => uri,
+			_ => return Err(ConfigParseError::Error("did not find authority")),
+		};
+		let dest_addr = dest_host.clone().to_string() + ":" + dest_port.as_str();
+		
+  	hashmap.insert(host.to_string(), (dest_uri.clone(), dest_host.to_string(), dest_addr));
   }
   
   Ok(hashmap)
