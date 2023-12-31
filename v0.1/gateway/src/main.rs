@@ -51,7 +51,7 @@ fn create_address_map(
   	
   	let host = match index_uri.host() {
 			Some(uri) => uri,
-			_ => return Err(ConfigParseError::Error("did not find host in uri")),
+			_ => return Err(ConfigParseError::Error("could not find host from addresses")),
 		};
 		
   	let dest_uri = match http::Uri::try_from(value) {
@@ -67,46 +67,43 @@ fn create_address_map(
 
 #[tokio::main]
 async fn main() {
+	// create config
   let args = match env::args().nth(1) {
       Some(a) => path::PathBuf::from(a),
       None => return println!("argument error:\nconfig params not found."),
   };
-
   let config = match config::Config::from_filepath(&args) {
       Ok(c) => c,
       Err(e) => return println!("configuration error:\n{}", e),
   };
-  
-  // bind tcp listeners
-  let address = format!("{}:{}", config.host, config.port);
-  let listener = match TcpListener::bind(address).await {
-  	Ok(l) => l,
-  	Err(e) => return println!("tcp listener error:\n{}", e),
-  };
 
-	// destination addresses
+	// get addresses
+  let host_address = config.host.clone() + &config.port.to_string();
   let addresses = match create_address_map(&config) {
   	Ok(addrs) => addrs,
   	Err(e) => return println!("address map error:\n{}", e),
   };
   let addresses_arc = Arc::new(addresses);
 
-  // tls acceptor
+  // tls cert and keys
   let cert = match fs::read(&config.cert_filepath).await {
   	Ok(f) => f,
   	Err(e) => return println!("file error:\n{}", e),
   };
-  
   let key = match fs::read(&config.key_filepath).await {
   	Ok(f) => f,
   	Err(e) => return println!("file error:\n{}", e),
   };
-
   let pkcs8 = match Identity::from_pkcs8(&cert, &key) {
   	Ok(pk) => pk,
   	Err(e) => return println!("cert error:\n{}", e),
   };
 
+  // bind tcp listeners
+  let listener = match TcpListener::bind(host_address).await {
+  	Ok(l) => l,
+  	Err(e) => return println!("tcp listener error:\n{}", e),
+  };
 	let tls_acceptor = match native_tls::TlsAcceptor::builder(pkcs8)
 		.build() {
 			Ok(native_acceptor) => tokio_native_tls::TlsAcceptor::from(native_acceptor),
@@ -115,6 +112,7 @@ async fn main() {
 
 	// sever loop
   loop {
+  	// rate limiting on _remote_addr
     let (socket, _remote_addr) = match listener.accept().await {
     	Ok(s) => s,
     	Err(_e) => {
