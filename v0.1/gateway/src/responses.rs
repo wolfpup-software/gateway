@@ -47,7 +47,7 @@ type BoxedResponse = Response<
 >;
 
 pub struct Svc {
-	pub addresses: Arc<HashMap<String, http::URI>>,
+	pub addresses: Arc<HashMap<String, http::Uri>>,
 }
 
 impl Service<Request<Incoming>> for Svc {
@@ -59,8 +59,8 @@ impl Service<Request<Incoming>> for Svc {
 
 	fn call(&self, mut req: Request<Incoming>) -> Self::Future {
 		// http1 and http2 headers
-		let requested_URI = match get_URI_from_host_or_authority(&req) {
-			Some(URI) => URI,
+		let requested_uri = match get_uri_from_host_or_authority(&req) {
+			Some(uri) => uri,
 			_ => {
 				return Box::pin(async {
 					// bad request
@@ -72,24 +72,24 @@ impl Service<Request<Incoming>> for Svc {
 			},
 		};
 
-		let composed_url = match create_dest_URI(&req, &self.addresses, &requested_URI) {
-			Some(URI) => URI,
+		let composed_url = match create_dest_uri(&req, &self.addresses, &requested_uri) {
+			Some(uri) => uri,
 			_ => {
 				return Box::pin(async {
 					http_code_response(
 						&StatusCode::BAD_GATEWAY,
-						&upstream_ERROR,
+						&UPSTREAM_ERROR,
 					)
 				}) 
 			},
 		};
 		// mutate req with composed_url
 		// "X-Forwared-For" could be added here (insecure)
-		*req.URI_mut() = composed_url;
+		*req.uri_mut() = composed_url;
 
     return Box::pin(async {
 		  let version = req.version();
-		 	let scheme = match req.URI().scheme() {
+		 	let scheme = match req.uri().scheme() {
   			Some(a) => a.as_str(),
   			// dont serve if no scheme
   			_ => "http",
@@ -123,12 +123,12 @@ fn http_code_response(
 		.body(Full::new(bytes::Bytes::from(body_str)).map_err(|e| match e {}).boxed())
 }
 
-fn get_URI_from_host_or_authority(
+fn get_uri_from_host_or_authority(
 	req: &Request<Incoming>,
 ) -> Option<String> {
 	// http2
 	if req.version() == hyper::Version::HTTP_2 {
-		let host = req.URI().host()?.to_string();
+		let host = req.uri().host()?.to_string();
 		return Some(host.to_string());
 	}
 
@@ -143,30 +143,30 @@ fn get_URI_from_host_or_authority(
   	_ => return None,
   };
   
-	let URI = match http::URI::try_from(host_str) {
-		Ok(URI) => URI,
+	let uri = match http::Uri::try_from(host_str) {
+		Ok(uri) => uri,
 		_ => return None,
 	};
 	
-	match URI.host() {
-		Some(URI) => Some(URI.to_string()),
+	match uri.host() {
+		Some(uri) => Some(uri.to_string()),
 		_ => None,
 	}
 }
 
-fn create_dest_URI(
+fn create_dest_uri(
 	req: &Request<Incoming>,
-	addresses: &collections::HashMap::<String, http::URI>,
-	URI: &str,
-) -> Option<http::URI> {
-	let mut dest_parts = match addresses.get(URI) {
-		Some(dest_URI) => dest_URI.clone().into_parts(),
+	addresses: &collections::HashMap::<String, http::Uri>,
+	uri: &str,
+) -> Option<http::Uri> {
+	let mut dest_parts = match addresses.get(uri) {
+		Some(dest_uri) => dest_uri.clone().into_parts(),
 		_ => return None,
 	};
-	dest_parts.path_and_query = req.URI().path_and_query().cloned();
+	dest_parts.path_and_query = req.uri().path_and_query().cloned();
 	
-	match http::URI::from_parts(dest_parts) {
-		Ok(URI) => Some(URI),
+	match http::Uri::from_parts(dest_parts) {
+		Ok(uri) => Some(uri),
 		_ => None,
 	}
 }
@@ -174,12 +174,12 @@ fn create_dest_URI(
 // this should be an error, or return an option
 // these should both exists otherwise no request
 fn create_address(req: &Request<Incoming>) -> Option<(&str, &str)> {
-	let host = match req.URI().host() {
+	let host = match req.uri().host() {
 		Some(h) => h,
 		_ => return None,
   };
 
- 	let authority = match req.URI().authority() {
+ 	let authority = match req.uri().authority() {
 		Some(a) => a.as_str(),
 		_ => return None,
   };
