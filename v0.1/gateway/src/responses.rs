@@ -1,10 +1,25 @@
+/*
+	Relay req to upstream server
+	
+	- find host from req
+	- use host to get copy of destination URI from address map
+	- replace the path_and_query of the destination uri with the path_and_query of the request
+	- request URI is replaced by the the destinataion URI
+	- updated request is sent to the destination server
+	
+	Errors are from both the current server and the upstream server.	
+	This server returns HTTP 502 for all failed requests.
+	Response body is a semi-informative error. Don't expose internals.
+*/
+
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::collections;
 
-use http_body_util::{combinators::BoxBody, Full,  BodyExt};
+use http_body_util::{BodyExt, Full};
+use http_body_util::combinators::BoxBody;
 use hyper::body::{Incoming};
 use hyper::header::{CONTENT_TYPE, HeaderValue};
 use hyper::{Response, Request, StatusCode};
@@ -16,8 +31,13 @@ use tokio::net::TcpStream;
 use hyper::client::conn::{http1, http2};
 
 const HTML: &str = "text/html; charset=utf-8";
-const INTERNAL_SERVER_ERROR: &str = "500 internal server error";
-const BAD_GATEWAY: &str = "BAD_GATEWAY";
+
+const URI_FROM_REQUEST_ERROR: &str = "could not retrieve uri from request";
+const DESTINATION_ERROR: &str = "could create a destination URI from request";
+const CONNECTION_ERROR: &str = "could create a connection to upstream server";
+const HANDSHAKE_ERROR: &str = "upstream server handshake failed";
+const UNABLE_TO_PROCESS_ERROR: &str = "unable to process request";
+const AUTHORITY_FROM_URI_ERROR: &str = "could not retrieve uri from upstream URI";
 
 type BoxedResponse = Response<
 	BoxBody<
@@ -26,25 +46,16 @@ type BoxedResponse = Response<
 	>
 >;
 
-/*
-	relay req to downstream server
-	
-	- find host from req
-	- use host to get copy of destination URI from address map
-	- replace the path_and_query of the destination uri with the path_and_query of the request
-	- request URI is replaced by the the destinataion URI
-	- updated request is sent to the destination server
-*/
-
 pub struct Svc {
 	pub addresses: Arc<HashMap<String, http::Uri>>,
 }
 
-
 impl Service<Request<Incoming>> for Svc {
 	type Response = BoxedResponse;
 	type Error = http::Error;
-	type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+	type Future = Pin<Box<
+		dyn Future<Output = Result<Self::Response, Self::Error>> + Send
+	>>;
 
 	fn call(&self, mut req: Request<Incoming>) -> Self::Future {
 		// http1 and http2 headers
@@ -53,7 +64,7 @@ impl Service<Request<Incoming>> for Svc {
 			_ => {
 				return Box::pin(async {
 					// bad request
-					http_code_response(&StatusCode::BAD_GATEWAY, &INTERNAL_SERVER_ERROR)
+					http_code_response(&StatusCode::BAD_GATEWAY, &URI_FROM_REQUEST_ERROR)
 				})
 			},
 		};
@@ -62,7 +73,7 @@ impl Service<Request<Incoming>> for Svc {
 			Some(uri) => uri,
 			_ => {
 				return Box::pin(async {
-					http_code_response(&StatusCode::BAD_GATEWAY, &INTERNAL_SERVER_ERROR)
+					http_code_response(&StatusCode::BAD_GATEWAY, &DESTINATION_ERROR)
 				}) 
 			},
 		};
@@ -142,36 +153,32 @@ fn create_dest_uri(
 	addresses: &collections::HashMap::<String, http::Uri>,
 	uri: &str,
 ) -> Option<http::Uri> {
-	let dest_parts = match addresses.get(uri) {
-		Some(dest_uri) => {
-			let mut parts = dest_uri.clone().into_parts();
-			parts.path_and_query = req.uri().path_and_query().cloned();
-			parts
-		},
+	let mut dest_parts = match addresses.get(uri) {
+		Some(dest_uri) => dest_uri.clone().into_parts(),
 		_ => return None,
 	};
-
+	dest_parts.path_and_query = req.uri().path_and_query().cloned();
+	
 	match http::Uri::from_parts(dest_parts) {
 		Ok(uri) => Some(uri),
 		_ => None,
 	}
 }
 
-// this should be an error
-fn create_address(req: &Request<Incoming>) -> (&str, &str) {
+// this should be an error, or return an option
+// these should both exists otherwise no request
+fn create_address(req: &Request<Incoming>) -> Option<(&str, &str)> {
 	let host = match req.uri().host() {
 		Some(h) => h,
-		// dont serve if no scheme?
-		_ => "",
+		_ => return None,
   };
 
  	let authority = match req.uri().authority() {
 		Some(a) => a.as_str(),
-		// beware of defaults
-		_ => "http",
+		_ => return None,
   };
 
-  (host, authority)
+  Some((host, authority))
 }
 
 async fn create_tcp_stream(addr: &str) -> Option<TokioIo<TcpStream>> {
@@ -181,6 +188,8 @@ async fn create_tcp_stream(addr: &str) -> Option<TokioIo<TcpStream>> {
   }
 }
 
+// this has multiple "types" of errors
+// signal that it is an inappropriate grouping?
 async fn create_tls_stream(
 	host: &str,
 	addr: &str,
@@ -209,16 +218,19 @@ async fn request_http1_response(
 	BoxedResponse,
 	http::Error
 > {
-	let (_, addr) = create_address(&req);
+	let (_, addr) = match create_address(&req) {
+		Some(stream) => stream,
+		_ => return http_code_response(&StatusCode::BAD_GATEWAY, &AUTHORITY_FROM_URI_ERROR),
+	};
 
   let io = match create_tcp_stream(&addr).await {
 		Some(stream) => stream,
-		_ => return http_code_response(&StatusCode::BAD_GATEWAY, &INTERNAL_SERVER_ERROR),
+		_ => return http_code_response(&StatusCode::BAD_GATEWAY, &CONNECTION_ERROR),
   };
 
   let (mut sender, conn) = match http1::handshake(io).await {
 		Ok(handshake) => handshake,
-		_ => return http_code_response(&StatusCode::BAD_GATEWAY, &INTERNAL_SERVER_ERROR),
+		_ => return http_code_response(&StatusCode::BAD_GATEWAY, &HANDSHAKE_ERROR),
   };
 
   tokio::task::spawn(async move {
@@ -231,7 +243,7 @@ async fn request_http1_response(
 		return Ok(r.map(|b| b.boxed()));
   };
 
-	http_code_response(&StatusCode::BAD_GATEWAY, &BAD_GATEWAY)
+	http_code_response(&StatusCode::BAD_GATEWAY, &UNABLE_TO_PROCESS_ERROR)
 }
 
 async fn request_http1_tls_response(
@@ -240,16 +252,19 @@ async fn request_http1_tls_response(
 	BoxedResponse,
 	http::Error
 > {
-	let (host, addr) = create_address(&req);
+	let (host, addr) = match create_address(&req) {
+		Some(stream) => stream,
+		_ => return http_code_response(&StatusCode::BAD_GATEWAY, &AUTHORITY_FROM_URI_ERROR),
+	};
 
   let io = match create_tls_stream(&host, &addr).await {
 		Some(stream) => stream,
-		_ => return http_code_response(&StatusCode::BAD_GATEWAY, &INTERNAL_SERVER_ERROR),
+		_ => return http_code_response(&StatusCode::BAD_GATEWAY, &CONNECTION_ERROR),
   };
 
   let (mut sender, conn) = match http1::handshake(io).await {
 		Ok(handshake) => handshake,
-		_ => return http_code_response(&StatusCode::BAD_GATEWAY, &INTERNAL_SERVER_ERROR),
+		_ => return http_code_response(&StatusCode::BAD_GATEWAY, &HANDSHAKE_ERROR),
   };
 
   tokio::task::spawn(async move {
@@ -262,7 +277,7 @@ async fn request_http1_tls_response(
 		return Ok(r.map(|b| b.boxed()));
   };
 
-	http_code_response(&StatusCode::BAD_GATEWAY, &BAD_GATEWAY)
+	http_code_response(&StatusCode::BAD_GATEWAY, &UNABLE_TO_PROCESS_ERROR)
 }
 
 async fn request_http2_response(
@@ -271,16 +286,19 @@ async fn request_http2_response(
 	BoxedResponse,
 	http::Error
 > {
-	let (_, addr) = create_address(&req);
+	let (_, addr) = match create_address(&req) {
+		Some(stream) => stream,
+		_ => return http_code_response(&StatusCode::BAD_GATEWAY, &AUTHORITY_FROM_URI_ERROR),
+	};
 
   let io = match create_tcp_stream(&addr).await {
 		Some(stream) => stream,
-		_ => return http_code_response(&StatusCode::BAD_GATEWAY, &INTERNAL_SERVER_ERROR),
+		_ => return http_code_response(&StatusCode::BAD_GATEWAY, &CONNECTION_ERROR),
   };
 
   let (mut client, client_conn) = match http2::handshake(TokioExecutor::new(), io).await {
 		Ok(handshake) => handshake,
-		_ => return http_code_response(&StatusCode::BAD_GATEWAY, &INTERNAL_SERVER_ERROR),
+		_ => return http_code_response(&StatusCode::BAD_GATEWAY, &HANDSHAKE_ERROR),
   };
 
   tokio::task::spawn(async move {
@@ -293,7 +311,7 @@ async fn request_http2_response(
 		return Ok(res.map(|b| b.boxed()));
   };
 
-	http_code_response(&StatusCode::BAD_GATEWAY, &INTERNAL_SERVER_ERROR)
+	http_code_response(&StatusCode::BAD_GATEWAY, &UNABLE_TO_PROCESS_ERROR)
 }
 
 async fn request_http2_tls_response(
@@ -302,15 +320,19 @@ async fn request_http2_tls_response(
 	BoxedResponse,
 	http::Error
 > {
-	let (host, addr) = create_address(&req);
+	let (host, addr) = match create_address(&req) {
+		Some(stream) => stream,
+		_ => return http_code_response(&StatusCode::BAD_GATEWAY, &AUTHORITY_FROM_URI_ERROR),
+	};
+	
   let io = match create_tls_stream(&host, &addr).await {
 		Some(stream) => stream,
-		_ => return http_code_response(&StatusCode::BAD_GATEWAY, &INTERNAL_SERVER_ERROR),
+		_ => return http_code_response(&StatusCode::BAD_GATEWAY, &CONNECTION_ERROR),
   };
 
   let (mut client, client_conn) = match http2::handshake(TokioExecutor::new(), io).await {
 		Ok(handshake) => handshake,
-		_ => return http_code_response(&StatusCode::BAD_GATEWAY, &INTERNAL_SERVER_ERROR),
+		_ => return http_code_response(&StatusCode::BAD_GATEWAY, &HANDSHAKE_ERROR),
   };
 
   tokio::task::spawn(async move {
@@ -323,6 +345,6 @@ async fn request_http2_tls_response(
 		return Ok(res.map(|b| b.boxed()));
   };
 
-	http_code_response(&StatusCode::BAD_GATEWAY, &INTERNAL_SERVER_ERROR)
+	http_code_response(&StatusCode::BAD_GATEWAY, &UNABLE_TO_PROCESS_ERROR)
 }
 
