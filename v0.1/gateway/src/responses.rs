@@ -1,13 +1,13 @@
 /*
 	Relay req to upstream server
 	
-	- find host from req
-	- use host to get copy of destination URI from address map
-	- replace the path_and_query of the destination uri with the path_and_query of the request
+	- find host from request
+	- use host to get copy of upstream URI from address map
+	- replace the path_and_query of the upstream URI with the path_and_query of request URI
 	- request URI is replaced by the the destinataion URI
-	- updated request is sent to the destination server
+	- updated request is relayed to the upstream server
 	
-	Errors are from both the current server and the upstream server.	
+	Errors can stem from both the current server and the upstream server.	
 	This server returns HTTP 502 for all failed requests.
 	Response body is a semi-informative error. Don't expose internals.
 */
@@ -32,12 +32,12 @@ use hyper::client::conn::{http1, http2};
 
 const HTML: &str = "text/html; charset=utf-8";
 
-const URI_FROM_REQUEST_ERROR: &str = "could not retrieve uri from request";
-const DESTINATION_ERROR: &str = "could create a destination URI from request";
+const URI_FROM_REQUEST_ERROR: &str = "could not retrieve URI from request";
+const UPSTREAM_ERROR: &str = "could create a upstream URI from request";
 const CONNECTION_ERROR: &str = "could create a connection to upstream server";
 const HANDSHAKE_ERROR: &str = "upstream server handshake failed";
 const UNABLE_TO_PROCESS_ERROR: &str = "unable to process request";
-const AUTHORITY_FROM_URI_ERROR: &str = "could not retrieve uri from upstream URI";
+const AUTHORITY_FROM_URI_ERROR: &str = "could not retrieve URI from upstream URI";
 
 type BoxedResponse = Response<
 	BoxBody<
@@ -47,7 +47,7 @@ type BoxedResponse = Response<
 >;
 
 pub struct Svc {
-	pub addresses: Arc<HashMap<String, http::Uri>>,
+	pub addresses: Arc<HashMap<String, http::URI>>,
 }
 
 impl Service<Request<Incoming>> for Svc {
@@ -59,31 +59,37 @@ impl Service<Request<Incoming>> for Svc {
 
 	fn call(&self, mut req: Request<Incoming>) -> Self::Future {
 		// http1 and http2 headers
-		let requested_uri = match get_uri_from_host_or_authority(&req) {
-			Some(uri) => uri,
+		let requested_URI = match get_URI_from_host_or_authority(&req) {
+			Some(URI) => URI,
 			_ => {
 				return Box::pin(async {
 					// bad request
-					http_code_response(&StatusCode::BAD_GATEWAY, &URI_FROM_REQUEST_ERROR)
+					http_code_response(
+						&StatusCode::BAD_GATEWAY,
+						&URI_FROM_REQUEST_ERROR,
+					)
 				})
 			},
 		};
 
-		let composed_url = match create_dest_uri(&req, &self.addresses, &requested_uri) {
-			Some(uri) => uri,
+		let composed_url = match create_dest_URI(&req, &self.addresses, &requested_URI) {
+			Some(URI) => URI,
 			_ => {
 				return Box::pin(async {
-					http_code_response(&StatusCode::BAD_GATEWAY, &DESTINATION_ERROR)
+					http_code_response(
+						&StatusCode::BAD_GATEWAY,
+						&upstream_ERROR,
+					)
 				}) 
 			},
 		};
 		// mutate req with composed_url
 		// "X-Forwared-For" could be added here (insecure)
-		*req.uri_mut() = composed_url;
+		*req.URI_mut() = composed_url;
 
     return Box::pin(async {
 		  let version = req.version();
-		 	let scheme = match req.uri().scheme() {
+		 	let scheme = match req.URI().scheme() {
   			Some(a) => a.as_str(),
   			// dont serve if no scheme
   			_ => "http",
@@ -117,12 +123,12 @@ fn http_code_response(
 		.body(Full::new(bytes::Bytes::from(body_str)).map_err(|e| match e {}).boxed())
 }
 
-fn get_uri_from_host_or_authority(
+fn get_URI_from_host_or_authority(
 	req: &Request<Incoming>,
 ) -> Option<String> {
 	// http2
 	if req.version() == hyper::Version::HTTP_2 {
-		let host = req.uri().host()?.to_string();
+		let host = req.URI().host()?.to_string();
 		return Some(host.to_string());
 	}
 
@@ -137,30 +143,30 @@ fn get_uri_from_host_or_authority(
   	_ => return None,
   };
   
-	let uri = match http::Uri::try_from(host_str) {
-		Ok(uri) => uri,
+	let URI = match http::URI::try_from(host_str) {
+		Ok(URI) => URI,
 		_ => return None,
 	};
 	
-	match uri.host() {
-		Some(uri) => Some(uri.to_string()),
+	match URI.host() {
+		Some(URI) => Some(URI.to_string()),
 		_ => None,
 	}
 }
 
-fn create_dest_uri(
+fn create_dest_URI(
 	req: &Request<Incoming>,
-	addresses: &collections::HashMap::<String, http::Uri>,
-	uri: &str,
-) -> Option<http::Uri> {
-	let mut dest_parts = match addresses.get(uri) {
-		Some(dest_uri) => dest_uri.clone().into_parts(),
+	addresses: &collections::HashMap::<String, http::URI>,
+	URI: &str,
+) -> Option<http::URI> {
+	let mut dest_parts = match addresses.get(URI) {
+		Some(dest_URI) => dest_URI.clone().into_parts(),
 		_ => return None,
 	};
-	dest_parts.path_and_query = req.uri().path_and_query().cloned();
+	dest_parts.path_and_query = req.URI().path_and_query().cloned();
 	
-	match http::Uri::from_parts(dest_parts) {
-		Ok(uri) => Some(uri),
+	match http::URI::from_parts(dest_parts) {
+		Ok(URI) => Some(URI),
 		_ => None,
 	}
 }
@@ -168,12 +174,12 @@ fn create_dest_uri(
 // this should be an error, or return an option
 // these should both exists otherwise no request
 fn create_address(req: &Request<Incoming>) -> Option<(&str, &str)> {
-	let host = match req.uri().host() {
+	let host = match req.URI().host() {
 		Some(h) => h,
 		_ => return None,
   };
 
- 	let authority = match req.uri().authority() {
+ 	let authority = match req.URI().authority() {
 		Some(a) => a.as_str(),
 		_ => return None,
   };

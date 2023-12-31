@@ -31,19 +31,19 @@ impl fmt::Display for ConfigParseError<'_>  {
   }
 }
 
-// hash map needs to be string or uri
-// if string
+/*
+	create_address_map iterates config.addresses and creates a map of
+	destination URIs indexed by a URI host.
+	ie: Map<example.com, http://some_address:6789>
+*/
 fn create_address_map(
 	config: &config::Config,
 ) -> Result<
 	collections::HashMap::<String, http::Uri>,
 	ConfigParseError,
 > {
-  // will need to verify hashmap values as uris as well, do after mvp, input pruning / sanitizatio
   let mut hashmap: collections::HashMap::<String, http::Uri> = collections::HashMap::new();
-  // separate into two functions? should be same amount of operations
   for (index, value) in config.addresses.iter() {
-  	// this is separate
   	let index_uri = match http::Uri::try_from(index) {
   		Ok(uri) => uri,
   		Err(e) => return Err(ConfigParseError::UriError(e)),

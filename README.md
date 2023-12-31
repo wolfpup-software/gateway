@@ -1,21 +1,66 @@
 # gateway
 
-route encrypted requests for multiple domains to multiple endpoints
+Route requests to local or upstream servers.
 
 ## abstract
 
-The requirement was to route external requests to local services through SSL / TLS / https.
-The result can serve multiple domains on a single server.
+A reverse-proxy written in rust using [tokio](https://tokio.rs/) and
+[hyper](https://hyper.rs/).
 
-Destination servers can be local, remote, or encrypted. But the intention was to
-route external requests to local services
+## Create a config
 
-A gateway encapsulates a server through a chosen port 443 by default.
-Requests are routed to a server based on the URI authority or host header
+A JSON configuration file is required to run `gateway`.
 
+Configuration schema:
 
-This server was made to provide the following:
-- a single server to route all 443 requests to other local services
-- it is not meant to relay requests to external resources (although you can do that)
-- route http2 and http1 requests through a reverse proxy
+```
+{
+  "host": <string>,
+  "port": <number>,
+  "key_filepath": <string>,
+  "cert_filepath": <string>,
+  "addresses": {
+    <string>: <string>,
+  }
+}
+```
 
+Change the `host` property to serve from a specific host.
+
+Change the `port` property to serve from a different port.
+
+Change the `directory` property to target an alternative directory. The `directory` property can be an absolute or relative path. A relative path is relative to the location of the JSON configuration file.
+
+A valid configuration example can be found at
+`gateway/v0.1/gateway.example.json`
+
+## Install gateway
+
+Execute the following to install `gateway`.
+
+```
+git clone https://github.com/herebythere/gateway
+cargo install --path gateway/v0.1/gateway
+```
+
+## Run gateway
+
+The `gateway` application accepts one argument from the command line:
+
+- A valid `gateway` JSON configuration file
+
+```
+gateway <path_to_configuration_file>
+```
+
+Execute the following to host the `./demo` directory using `gateway`.
+
+```
+gateway gateway/v0.1/gateway.example.json
+```
+
+Open a browser and visit `http://localhost:<config.port>`.
+
+## Licence
+
+BSD 3-Clause License
