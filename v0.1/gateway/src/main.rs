@@ -33,7 +33,12 @@ impl fmt::Display for ConfigParseError<'_>  {
 
 // hash map needs to be string or uri
 // if string
-fn create_address_map(config: &config::Config) -> Result<collections::HashMap::<String, http::Uri>, ConfigParseError> {
+fn create_address_map(
+	config: &config::Config,
+) -> Result<
+	collections::HashMap::<String, http::Uri>,
+	ConfigParseError,
+> {
   // will need to verify hashmap values as uris as well, do after mvp, input pruning / sanitizatio
   let mut hashmap: collections::HashMap::<String, http::Uri> = collections::HashMap::new();
   // separate into two functions? should be same amount of operations
@@ -85,7 +90,7 @@ async fn main() {
   	Err(e) => return println!("address map error:\n{}", e),
   };
   let addresses_arc = Arc::new(addresses);
-  println!("{:?}", addresses_arc);
+
   // tls acceptor
   let cert = match fs::read(&config.cert_filepath).await {
   	Ok(f) => f,
