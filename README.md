@@ -27,8 +27,9 @@ Configuration schema:
 
 The `host` and `port` properties define the address of the server.
 
-The `key_filepath` and `cert_filepath` properties define the TLS certificate
-needed to establish TLS connections.
+The `key_filepath` and `cert_filepath` properties define the filepath of the
+TLS certificate needed to establish TLS connections. They can be relative
+to the location of the config.
 
 The `addresses` property defines a key value map of URIs to route incoming
 requests to upstream servers. Only the `authority` of a URI will be used
@@ -56,7 +57,7 @@ The `gateway` application accepts one argument from the command line:
 gateway <path_to_configuration_file>
 ```
 
-Execute the following to generate a self-signed certificate and `gateway`.
+Execute the following to generate a self-signed certificate and run `gateway`.
 
 ```
 bash gateway/generate_tls.sh
