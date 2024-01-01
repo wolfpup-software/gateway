@@ -4,7 +4,7 @@ Route requests to local or upstream servers.
 
 ## abstract
 
-A reverse-proxy written in rust using [tokio](https://tokio.rs/) and
+A gateway / reverse-proxy written in rust using [tokio](https://tokio.rs/) and
 [hyper](https://hyper.rs/).
 
 ## Create a config
@@ -25,11 +25,14 @@ Configuration schema:
 }
 ```
 
-Change the `host` property to serve from a specific host.
+The `host` and `port` properties define the address of the server.
 
-Change the `port` property to serve from a different port.
+The `key_filepath` and `cert_filepath` properties define the TLS certificate
+needed to establish TLS connections.
 
-Change the `directory` property to target an alternative directory. The `directory` property can be an absolute or relative path. A relative path is relative to the location of the JSON configuration file.
+The `addresses` property defines a key value map of URIs to route incoming
+requests to upstream servers. Only the `authority` of a URI will be used
+for routing requests.
 
 A valid configuration example can be found at
 `gateway/v0.1/gateway.example.json`
@@ -53,13 +56,14 @@ The `gateway` application accepts one argument from the command line:
 gateway <path_to_configuration_file>
 ```
 
-Execute the following to host the `./demo` directory using `gateway`.
+Execute the following to generate a self-signed certificate and `gateway`.
 
 ```
+bash gateway/generate_tls.sh
 gateway gateway/v0.1/gateway.example.json
 ```
 
-Open a browser and visit `http://localhost:<config.port>`.
+Open a browser and visit `https://localhost:4000`.
 
 ## Licence
 

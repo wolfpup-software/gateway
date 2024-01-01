@@ -35,6 +35,8 @@ impl fmt::Display for ConfigParseError<'_>  {
 	create_address_map iterates config.addresses and creates a map of
 	destination URIs indexed by a URI host.
 	ie: Map<example.com, http://some_address:6789>
+	
+	If a URI fails to parse, the entire operation fails
 */
 fn create_address_map(
 	config: &config::Config,

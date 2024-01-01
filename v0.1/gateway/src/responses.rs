@@ -21,6 +21,7 @@ use std::collections;
 use http_body_util::{BodyExt, Full};
 use http_body_util::combinators::BoxBody;
 use hyper::body::{Incoming};
+use hyper::client::conn::{http1, http2};
 use hyper::header::{CONTENT_TYPE, HeaderValue};
 use hyper::{Response, Request, StatusCode};
 use hyper::service::Service;
@@ -28,16 +29,19 @@ use hyper_util::rt::TokioExecutor;
 use hyper_util::rt::TokioIo;
 use native_tls::{TlsConnector};
 use tokio::net::TcpStream;
-use hyper::client::conn::{http1, http2};
 
+const HTTP: &str = "http";
+const HTTPS: &str = "https";
 const HTML: &str = "text/html; charset=utf-8";
+const HOST: &str = "host";
 
-const URI_FROM_REQUEST_ERROR: &str = "could not retrieve URI from request";
-const UPSTREAM_ERROR: &str = "could create a upstream URI from request";
-const CONNECTION_ERROR: &str = "could create a connection to upstream server";
-const HANDSHAKE_ERROR: &str = "upstream server handshake failed";
-const UNABLE_TO_PROCESS_ERROR: &str = "unable to process request";
 const AUTHORITY_FROM_URI_ERROR: &str = "could not retrieve URI from upstream URI";
+const URI_FROM_REQUEST_ERROR: &str = "could not retrieve URI from request";
+const UPSTREAM_URI_ERROR: &str = "could create a upstream URI from request";
+const UPSTREAM_CONNECTION_ERROR: &str = "could not establish connection to upstream server";
+const UPSTREAM_HANDSHAKE_ERROR: &str = "upstream server handshake failed";
+const UNABLE_TO_PROCESS_REQUEST_ERROR: &str = "unable to process request";
+
 
 type BoxedResponse = Response<
 	BoxBody<
@@ -78,7 +82,7 @@ impl Service<Request<Incoming>> for Svc {
 				return Box::pin(async {
 					http_code_response(
 						&StatusCode::BAD_GATEWAY,
-						&UPSTREAM_ERROR,
+						&UPSTREAM_URI_ERROR,
 					)
 				}) 
 			},
@@ -92,17 +96,17 @@ impl Service<Request<Incoming>> for Svc {
 		 	let scheme = match req.uri().scheme() {
   			Some(a) => a.as_str(),
   			// dont serve if no scheme
-  			_ => "http",
+  			_ => HTTP,
 		  };
 
 			match (version, scheme) {
-				(hyper::Version::HTTP_2, "https") => {
+				(hyper::Version::HTTP_2, HTTPS) => {
 					request_http2_tls_response(req).await
 				},
-				(hyper::Version::HTTP_2, "http") => {
+				(hyper::Version::HTTP_2, HTTP) => {
 					request_http2_response(req).await
 				},
-				(_, "https") => {
+				(_, HTTPS) => {
 					request_http1_tls_response(req).await
 				},
 				_ => {
@@ -128,12 +132,14 @@ fn get_uri_from_host_or_authority(
 ) -> Option<String> {
 	// http2
 	if req.version() == hyper::Version::HTTP_2 {
-		let host = req.uri().host()?.to_string();
-		return Some(host.to_string());
+		return match req.uri().host() {
+			Some(s) => Some(s.to_string()),
+			_ => None,
+		}
 	}
 
 	// http1.1
-  let host_str = match req.headers().get("host") {
+  let host_str = match req.headers().get(HOST) {
   	Some(h) => {
   		match h.to_str() {
   			Ok(hst) => hst,
@@ -231,12 +237,12 @@ async fn request_http1_response(
 
   let io = match create_tcp_stream(&addr).await {
 		Some(stream) => stream,
-		_ => return http_code_response(&StatusCode::BAD_GATEWAY, &CONNECTION_ERROR),
+		_ => return http_code_response(&StatusCode::BAD_GATEWAY, &UPSTREAM_CONNECTION_ERROR),
   };
 
   let (mut sender, conn) = match http1::handshake(io).await {
 		Ok(handshake) => handshake,
-		_ => return http_code_response(&StatusCode::BAD_GATEWAY, &HANDSHAKE_ERROR),
+		_ => return http_code_response(&StatusCode::BAD_GATEWAY, &UPSTREAM_HANDSHAKE_ERROR),
   };
 
   tokio::task::spawn(async move {
@@ -249,7 +255,7 @@ async fn request_http1_response(
 		return Ok(r.map(|b| b.boxed()));
   };
 
-	http_code_response(&StatusCode::BAD_GATEWAY, &UNABLE_TO_PROCESS_ERROR)
+	http_code_response(&StatusCode::BAD_GATEWAY, &UNABLE_TO_PROCESS_REQUEST_ERROR)
 }
 
 async fn request_http1_tls_response(
@@ -265,12 +271,12 @@ async fn request_http1_tls_response(
 
   let io = match create_tls_stream(&host, &addr).await {
 		Some(stream) => stream,
-		_ => return http_code_response(&StatusCode::BAD_GATEWAY, &CONNECTION_ERROR),
+		_ => return http_code_response(&StatusCode::BAD_GATEWAY, &UPSTREAM_CONNECTION_ERROR),
   };
 
   let (mut sender, conn) = match http1::handshake(io).await {
 		Ok(handshake) => handshake,
-		_ => return http_code_response(&StatusCode::BAD_GATEWAY, &HANDSHAKE_ERROR),
+		_ => return http_code_response(&StatusCode::BAD_GATEWAY, &UPSTREAM_HANDSHAKE_ERROR),
   };
 
   tokio::task::spawn(async move {
@@ -283,7 +289,7 @@ async fn request_http1_tls_response(
 		return Ok(r.map(|b| b.boxed()));
   };
 
-	http_code_response(&StatusCode::BAD_GATEWAY, &UNABLE_TO_PROCESS_ERROR)
+	http_code_response(&StatusCode::BAD_GATEWAY, &UNABLE_TO_PROCESS_REQUEST_ERROR)
 }
 
 async fn request_http2_response(
@@ -299,12 +305,12 @@ async fn request_http2_response(
 
   let io = match create_tcp_stream(&addr).await {
 		Some(stream) => stream,
-		_ => return http_code_response(&StatusCode::BAD_GATEWAY, &CONNECTION_ERROR),
+		_ => return http_code_response(&StatusCode::BAD_GATEWAY, &UPSTREAM_CONNECTION_ERROR),
   };
 
   let (mut client, client_conn) = match http2::handshake(TokioExecutor::new(), io).await {
 		Ok(handshake) => handshake,
-		_ => return http_code_response(&StatusCode::BAD_GATEWAY, &HANDSHAKE_ERROR),
+		_ => return http_code_response(&StatusCode::BAD_GATEWAY, &UPSTREAM_HANDSHAKE_ERROR),
   };
 
   tokio::task::spawn(async move {
@@ -317,7 +323,7 @@ async fn request_http2_response(
 		return Ok(res.map(|b| b.boxed()));
   };
 
-	http_code_response(&StatusCode::BAD_GATEWAY, &UNABLE_TO_PROCESS_ERROR)
+	http_code_response(&StatusCode::BAD_GATEWAY, &UNABLE_TO_PROCESS_REQUEST_ERROR)
 }
 
 async fn request_http2_tls_response(
@@ -333,12 +339,12 @@ async fn request_http2_tls_response(
 	
   let io = match create_tls_stream(&host, &addr).await {
 		Some(stream) => stream,
-		_ => return http_code_response(&StatusCode::BAD_GATEWAY, &CONNECTION_ERROR),
+		_ => return http_code_response(&StatusCode::BAD_GATEWAY, &UPSTREAM_CONNECTION_ERROR),
   };
 
   let (mut client, client_conn) = match http2::handshake(TokioExecutor::new(), io).await {
 		Ok(handshake) => handshake,
-		_ => return http_code_response(&StatusCode::BAD_GATEWAY, &HANDSHAKE_ERROR),
+		_ => return http_code_response(&StatusCode::BAD_GATEWAY, &UPSTREAM_HANDSHAKE_ERROR),
   };
 
   tokio::task::spawn(async move {
@@ -351,6 +357,6 @@ async fn request_http2_tls_response(
 		return Ok(res.map(|b| b.boxed()));
   };
 
-	http_code_response(&StatusCode::BAD_GATEWAY, &UNABLE_TO_PROCESS_ERROR)
+	http_code_response(&StatusCode::BAD_GATEWAY, &UNABLE_TO_PROCESS_REQUEST_ERROR)
 }
 
