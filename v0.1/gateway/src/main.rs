@@ -80,7 +80,7 @@ async fn main() {
   };
 
 	// get addresses
-  let host_address = config.host.clone() + &config.port.to_string();
+  let host_address = config.host.clone() + ":" + &config.port.to_string();
   let addresses = match create_address_map(&config) {
   	Ok(addrs) => addrs,
   	Err(e) => return println!("address map error:\n{}", e),
