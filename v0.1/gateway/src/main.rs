@@ -1,103 +1,146 @@
-
+use std::collections;
 use std::env;
+use std::fmt;
 use std::path;
-use std::net;
-use hyper::server::conn::{AddrIncoming, AddrStream};
-use hyper::{Server, Body, Request, Method, Response, StatusCode};
-use hyper::service::{make_service_fn, service_fn};
-use std::io;
+use std::sync::Arc;
+
+use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::server::conn::auto::Builder;
+use native_tls::{Identity};
+use tokio::fs;
+use tokio::net::TcpListener;
+
+mod responses;
 
 use config;
 
-mod tls;
+
+pub enum ConfigParseError<'a> {
+	HeaderError(http::header::InvalidHeaderValue),
+	UriError(<http::Uri as TryFrom<String>>::Error),
+	Error(&'a str),
+}
+
+impl fmt::Display for ConfigParseError<'_>  {
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+  	match self {
+  		ConfigParseError::HeaderError(io_error) => write!(f, "{}", io_error),
+  		ConfigParseError::UriError(json_error) => write!(f, "{}", json_error),
+  		ConfigParseError::Error(error) => write!(f, "{}", error),
+  	}
+  }
+}
+
+/*
+	create_address_map iterates config.addresses and creates a map of
+	destination URIs indexed by a URI host.
+	ie: Map<example.com, http://some_address:6789>
+	
+	If a URI fails to parse, the entire operation fails
+*/
+fn create_address_map(
+	config: &config::Config,
+) -> Result<
+	collections::HashMap::<String, http::Uri>,
+	ConfigParseError,
+> {
+  let mut hashmap: collections::HashMap::<String, http::Uri> = collections::HashMap::new();
+  for (index, value) in config.addresses.iter() {
+  	let index_uri = match http::Uri::try_from(index) {
+  		Ok(uri) => uri,
+  		Err(e) => return Err(ConfigParseError::UriError(e)),
+  	};
+  	
+  	let host = match index_uri.host() {
+			Some(uri) => uri,
+			_ => return Err(ConfigParseError::Error("could not find host from addresses")),
+		};
+		
+  	let dest_uri = match http::Uri::try_from(value) {
+  		Ok(uri) => uri,
+  		Err(e) => return Err(ConfigParseError::UriError(e)),
+  	};
+  	
+  	hashmap.insert(host.to_string(), dest_uri);
+  }
+  
+  Ok(hashmap)
+}
 
 #[tokio::main]
 async fn main() {
-    let args = match env::args().nth(1) {
-        Some(a) => path::PathBuf::from(a),
-        None => return println!("argument error: no config params were found."),
-    };
+	// create config
+  let args = match env::args().nth(1) {
+      Some(a) => path::PathBuf::from(a),
+      None => return println!("argument error:\nconfig params not found."),
+  };
+  let config = match config::Config::from_filepath(&args) {
+      Ok(c) => c,
+      Err(e) => return println!("configuration error:\n{}", e),
+  };
 
-    let config = match config::Config::from_filepath(&args) {
-        Ok(c) => c,
-        Err(e) => return println!("configuration error: {}", e),
-    };
-    println!("{:?}", config);
+	// get addresses
+  let host_address = config.host.clone() + ":" + &config.port.to_string();
+  let addresses = match create_address_map(&config) {
+  	Ok(addrs) => addrs,
+  	Err(e) => return println!("address map error:\n{}", e),
+  };
+  let addresses_arc = Arc::new(addresses);
 
+  // tls cert and keys
+  let cert = match fs::read(&config.cert_filepath).await {
+  	Ok(f) => f,
+  	Err(e) => return println!("file error:\n{}", e),
+  };
+  let key = match fs::read(&config.key_filepath).await {
+  	Ok(f) => f,
+  	Err(e) => return println!("file error:\n{}", e),
+  };
+  let pkcs8 = match Identity::from_pkcs8(&cert, &key) {
+  	Ok(pk) => pk,
+  	Err(e) => return println!("cert error:\n{}", e),
+  };
 
-    let host = match config.host.parse() {
-        Ok(h) => h,
-        _ => return println!("configuration error: unable to parse host."),
-    };
+  // bind tcp listeners
+  let listener = match TcpListener::bind(host_address).await {
+  	Ok(l) => l,
+  	Err(e) => return println!("tcp listener error:\n{}", e),
+  };
+	let tls_acceptor = match native_tls::TlsAcceptor::builder(pkcs8)
+		.build() {
+			Ok(native_acceptor) => tokio_native_tls::TlsAcceptor::from(native_acceptor),
+			Err(e) => return println!("native_acceptor:\n{}", e),
+	};
 
-    let addr = net::SocketAddr::new(host, config.port);
-
-    let tls_config = match tls::create_tls_config(
-        &config.cert,
-        &config.key,
-    ) {
-        Ok(h) => h,
-        Err(e) => return println!("configuration error: {}", e),
-    };
-
-    let incoming = match AddrIncoming::bind(&addr) {
-        Ok(h) => h,
-        _ => return println!("configuration error: to bind address."),
+	// sever loop
+  loop {
+  	// rate limiting on _remote_addr
+    let (socket, _remote_addr) = match listener.accept().await {
+    	Ok(s) => s,
+    	Err(_e) => {
+				// log socket error
+    		continue;
+    	},
     };
     
-
-    let service = make_service_fn(|_| async { Ok::<_, io::Error>(service_fn(echo)) });
-    let server = Server::builder(tls::TlsAcceptor::new(tls_config, incoming));
-
-    // run server
-    if let Err(e) = server.serve(service).await {
-        println!("server error: {}", e);
-    }
+		let io = match tls_acceptor.clone().accept(socket).await {
+			Ok(s) => TokioIo::new(s),
+			Err(_e) => {
+				// log tls error
+				continue;
+			},
+		};
+		
+  	let service = responses::Svc{
+  		addresses: addresses_arc.clone(),
+  	};
+  	
+  	tokio::task::spawn(async move {
+  		// log response error
+  		Builder::new(TokioExecutor::new())
+  			.serve_connection(io, service)
+  			.await
+  	});
+  } 
 }
 
-// Custom echo service, handling two different routes and a
-// catch-all 404 responder.
-async fn echo(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
-    let mut response = Response::new(Body::empty());
-    match (req.method(), req.uri().path()) {
-        // Help route.
-        (&Method::GET, "/") => {
-            *response.body_mut() = Body::from("howdy!");
-        }
-        // Catch-all 404.
-        _ => {
-            *response.body_mut() = Body::from("howdy!");
-        }
-    };
-
-    Ok(response)
-}
-
-// The closure inside `make_service_fn` is run for each connection,
-// creating a 'service' to handle requests for that specific connection.
-// let make_service = make_service_fn(move |_| {
-//     let client = client_main.clone();
-
-//     async move {
-//         // This is the `Service` that will handle the connection.
-//         // `service_fn` is a helper to convert a function that
-//         // returns a Response into a `Service`.
-//         Ok::<_, Error>(service_fn(move |mut req| {
-//             let uri_string = format!(
-//                 "http://{}{}",
-//                 out_addr_clone,
-//                 req.uri()
-//                     .path_and_query()
-//                     .map(|x| x.as_str())
-//                     .unwrap_or("/")
-//             );
-//             let uri = uri_string.parse().unwrap();
-//             *req.uri_mut() = uri;
-//             client.request(req)
-//         }))
-//     }
-// });
-
-// let mut request = Request::builder();
-// request.uri("https://www.rust-lang.org/")
-//        .header("User-Agent", "my-awesome-agent/1.0");
