@@ -150,12 +150,12 @@ fn get_uri_from_host_or_authority(
   };
   
 	let uri = match http::Uri::try_from(host_str) {
-		Ok(uri) => uri,
+		Ok(u) => u,
 		_ => return None,
 	};
 	
 	match uri.host() {
-		Some(uri) => Some(uri.to_string()),
+		Some(host) => Some(host.to_string()),
 		_ => None,
 	}
 }
@@ -189,6 +189,9 @@ fn create_address(req: &Request<Incoming>) -> Option<(&str, &str)> {
 		Some(a) => a.as_str(),
 		_ => return None,
   };
+  
+  // if authority does not have port
+  	// add one based on scheme
 
   Some((host, authority))
 }
