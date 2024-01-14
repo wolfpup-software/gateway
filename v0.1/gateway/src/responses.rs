@@ -8,7 +8,7 @@
     - updated request is relayed to the upstream server
 
     Errors can stem from both the current server and the upstream server.
-    This server returns HTTP 502 for all failed requests.
+    This server returns HTTP 502 for all failed request local to this code.
     Response body is a semi-informative error. Don't expose internals.
 */
 
