@@ -9,7 +9,15 @@ use tokio::fs;
 use tokio::net::TcpListener;
 
 mod config;
-mod responses;
+mod service;
+
+/*
+    split service and responses
+
+    compile and test
+
+    move on to file server
+*/
 
 #[tokio::main]
 async fn main() {
@@ -18,7 +26,7 @@ async fn main() {
         Some(a) => path::PathBuf::from(a),
         None => return println!("argument error:\nconfig params not found."),
     };
-    let config = match config::from_filepath(&args) {
+    let config = match config::from_filepath(&args).await {
         Ok(c) => c,
         Err(e) => return println!("configuration error:\n{}", e),
     };
@@ -76,7 +84,7 @@ async fn main() {
             }
         };
 
-        let service = responses::Svc {
+        let service = service::Svc {
             addresses: addresses_arc.clone(),
         };
 

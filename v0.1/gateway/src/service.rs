@@ -65,7 +65,8 @@ impl Service<Request<Incoming>> for Svc {
             }
         };
 
-        let composed_url = match create_dest_uri(&req, &self.addresses, &requested_uri) {
+        // updated req
+        let updated_req = match create_dest_uri(req, &self.addresses, &requested_uri) {
             Some(uri) => uri,
             _ => {
                 return Box::pin(async {
@@ -73,23 +74,20 @@ impl Service<Request<Incoming>> for Svc {
                 })
             }
         };
-        // mutate req with composed_url
-        // "X-Forwared-For" could be added here (insecure)
-        *req.uri_mut() = composed_url;
 
         return Box::pin(async {
-            let version = req.version();
-            let scheme = match req.uri().scheme() {
+            let version = updated_req.version();
+            let scheme = match updated_req.uri().scheme() {
                 Some(a) => a.as_str(),
                 // dont serve if no scheme
                 _ => HTTP,
             };
 
             match (version, scheme) {
-                (hyper::Version::HTTP_2, HTTPS) => request_http2_tls_response(req).await,
-                (hyper::Version::HTTP_2, HTTP) => request_http2_response(req).await,
-                (_, HTTPS) => request_http1_tls_response(req).await,
-                _ => request_http1_response(req).await,
+                (hyper::Version::HTTP_2, HTTPS) => request_http2_tls_response(updated_req).await,
+                (hyper::Version::HTTP_2, HTTP) => request_http2_response(updated_req).await,
+                (_, HTTPS) => request_http1_tls_response(updated_req).await,
+                _ => request_http1_response(updated_req).await,
             }
         });
     }
@@ -138,21 +136,26 @@ fn get_uri_from_host_or_authority(req: &Request<Incoming>) -> Option<String> {
     }
 }
 
+
+// might be easier to manipulate strings
 fn create_dest_uri(
-    req: &Request<Incoming>,
+    mut req: Request<Incoming>,
     addresses: &collections::HashMap<String, http::Uri>,
     uri: &str,
-) -> Option<http::Uri> {
+) -> Option<Request<Incoming>> {
     let mut dest_parts = match addresses.get(uri) {
         Some(dest_uri) => dest_uri.clone().into_parts(),
         _ => return None,
     };
     dest_parts.path_and_query = req.uri().path_and_query().cloned();
 
-    match http::Uri::from_parts(dest_parts) {
-        Ok(uri) => Some(uri),
-        _ => None,
-    }
+    let updated_uri = match http::Uri::from_parts(dest_parts) {
+        Ok(u) => u,
+        _ => return None,
+    };
+
+    *req.uri_mut() = updated_uri;
+    Some(req)
 }
 
 // this should be an error, or return an option

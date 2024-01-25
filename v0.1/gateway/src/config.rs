@@ -1,7 +1,7 @@
 use std::collections;
 use std::fmt;
-use std::fs;
 use std::path;
+use tokio::fs;
 
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -49,7 +49,7 @@ pub struct Config {
     pub addresses: collections::HashMap<String, String>,
 }
 
-pub fn from_filepath(filepath: &path::PathBuf) -> Result<Config, ConfigError> {
+pub async fn from_filepath(filepath: &path::PathBuf) -> Result<Config, ConfigError> {
     // get position relative to working directory
     let config_pathbuff = match filepath.canonicalize() {
         Ok(pb) => pb,
@@ -62,12 +62,12 @@ pub fn from_filepath(filepath: &path::PathBuf) -> Result<Config, ConfigError> {
     };
 
     // build json conifg
-    let json_as_str = match fs::File::open(&config_pathbuff) {
+    let json_as_str = match fs::read_to_string(&config_pathbuff).await {
         Ok(r) => r,
         Err(e) => return Err(ConfigError::IoError(e)),
     };
 
-    let config: Config = match serde_json::from_reader(&json_as_str) {
+    let config: Config = match serde_json::from_str(&json_as_str) {
         Ok(j) => j,
         Err(e) => return Err(ConfigError::JsonError(e)),
     };
@@ -122,6 +122,7 @@ pub fn create_address_map(
             Err(e) => return Err(ConfigParseError::UriError(e)),
         };
 
+				// only add host
         let host = match index_uri.host() {
             Some(uri) => uri,
             _ => {
@@ -131,8 +132,19 @@ pub fn create_address_map(
             }
         };
 
+				// remove path and query
         let dest_uri = match http::Uri::try_from(value) {
-            Ok(uri) => uri,
+            Ok(uri) => {
+            	let mut parts = uri.clone().into_parts();
+        	    parts.path_and_query = None;
+
+							match http::Uri::from_parts(parts) {
+									Ok(u) => u,
+									Err(e) => return Err(ConfigParseError::Error(
+                    "could not find host from addresses",
+                )),
+							}
+            },
             Err(e) => return Err(ConfigParseError::UriError(e)),
         };
 
