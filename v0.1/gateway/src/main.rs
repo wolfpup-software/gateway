@@ -26,13 +26,15 @@ async fn main() {
         Some(a) => path::PathBuf::from(a),
         None => return println!("argument error:\nconfig params not found."),
     };
+
     let config = match config::from_filepath(&args).await {
         Ok(c) => c,
-        Err(e) => return println!("configuration error:\n{}", e),
+        Err(e) => return println!("config error:\n{}", e),
     };
 
     // get addresses
     let host_address = config.host.clone() + ":" + &config.port.to_string();
+    // if URIs fail to parse, the server fails to run.
     let addresses = match config::create_address_map(&config) {
         Ok(addrs) => addrs,
         Err(e) => return println!("address map error:\n{}", e),
@@ -46,11 +48,11 @@ async fn main() {
     };
     let key = match fs::read(&config.key_filepath).await {
         Ok(f) => f,
-        Err(e) => return println!("cert error:\n{}", e),
+        Err(e) => return println!("key error:\n{}", e),
     };
     let pkcs8 = match Identity::from_pkcs8(&cert, &key) {
         Ok(pk) => pk,
-        Err(e) => return println!("cert error:\n{}", e),
+        Err(e) => return println!("pkcs8 error:\n{}", e),
     };
 
     // create tls acceptor

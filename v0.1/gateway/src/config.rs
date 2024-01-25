@@ -1,10 +1,12 @@
+use collections::HashMap;
+use http::Uri;
+use path::PathBuf;
+use serde::{Deserialize, Serialize};
+use serde_json;
 use std::collections;
 use std::fmt;
 use std::path;
 use tokio::fs;
-
-use serde::{Deserialize, Serialize};
-use serde_json;
 
 const FILEPATH_KEY_ERR: &str = "config did not include an existing key file";
 const FILEPATH_CERT_ERR: &str = "config did not include an existing cert file";
@@ -44,12 +46,12 @@ impl fmt::Display for ConfigParseError<'_> {
 pub struct Config {
     pub host: String,
     pub port: u16,
-    pub key_filepath: path::PathBuf,
-    pub cert_filepath: path::PathBuf,
-    pub addresses: collections::HashMap<String, String>,
+    pub key_filepath: PathBuf,
+    pub cert_filepath: PathBuf,
+    pub addresses: HashMap<String, String>,
 }
 
-pub async fn from_filepath(filepath: &path::PathBuf) -> Result<Config, ConfigError> {
+pub async fn from_filepath(filepath: &PathBuf) -> Result<Config, ConfigError> {
     // get position relative to working directory
     let config_pathbuff = match filepath.canonicalize() {
         Ok(pb) => pb,
@@ -72,8 +74,8 @@ pub async fn from_filepath(filepath: &path::PathBuf) -> Result<Config, ConfigErr
         Err(e) => return Err(ConfigError::JsonError(e)),
     };
 
-    // create key and cert with absolute filepaths from client config
-    let key = match combine_pathbuf(&parent_dir, &config.key_filepath) {
+    // create absolute filepaths for key and cert
+    let key = match parent_dir.join(&config.key_filepath).canonicalize() {
         Ok(j) => j,
         Err(e) => return Err(ConfigError::IoError(e)),
     };
@@ -81,7 +83,7 @@ pub async fn from_filepath(filepath: &path::PathBuf) -> Result<Config, ConfigErr
         return Err(ConfigError::Error(FILEPATH_KEY_ERR));
     }
 
-    let cert = match combine_pathbuf(&parent_dir, &config.cert_filepath) {
+    let cert = match parent_dir.join(&config.cert_filepath).canonicalize() {
         Ok(j) => j,
         Err(e) => return Err(ConfigError::IoError(e)),
     };
@@ -98,53 +100,30 @@ pub async fn from_filepath(filepath: &path::PathBuf) -> Result<Config, ConfigErr
     })
 }
 
-fn combine_pathbuf(
-    base_dir: &path::PathBuf,
-    filepath: &path::PathBuf,
-) -> Result<path::PathBuf, std::io::Error> {
-    base_dir.join(filepath).canonicalize()
-}
-
 /*
-    create_address_map iterates config.addresses and creates a map of
-    destination URIs indexed by a URI host.
+    Iterate config.addresses and create a <URI host, destination URI>map.
     ie: Map<example.com, http://some_address:6789>
-
-    If a URI fails to parse, the entire operation fails
 */
-pub fn create_address_map(
-    config: &Config,
-) -> Result<collections::HashMap<String, http::Uri>, ConfigParseError> {
-    let mut hashmap = collections::HashMap::<String, http::Uri>::new();
-    for (index, value) in &config.addresses {
-        let index_uri = match http::Uri::try_from(index) {
+pub fn create_address_map(config: &Config) -> Result<HashMap<String, Uri>, ConfigParseError> {
+    let mut hashmap = HashMap::<String, Uri>::new();
+    for (arrival_str, dest_str) in &config.addresses {
+        let arrival_uri = match Uri::try_from(arrival_str) {
             Ok(uri) => uri,
             Err(e) => return Err(ConfigParseError::UriError(e)),
         };
 
-				// only add host
-        let host = match index_uri.host() {
+        let host = match arrival_uri.host() {
             Some(uri) => uri,
             _ => {
                 return Err(ConfigParseError::Error(
-                    "could not find host from addresses",
+                    "could not parse hosts from addresses",
                 ))
             }
         };
 
-				// remove path and query
-        let dest_uri = match http::Uri::try_from(value) {
-            Ok(uri) => {
-            	let mut parts = uri.clone().into_parts();
-        	    parts.path_and_query = None;
-
-							match http::Uri::from_parts(parts) {
-									Ok(u) => u,
-									Err(e) => return Err(ConfigParseError::Error(
-                    "could not find host from addresses",
-                )),
-							}
-            },
+        // no need to remove path and query, it is replaced later
+        let dest_uri = match Uri::try_from(dest_str) {
+            Ok(uri) => uri,
             Err(e) => return Err(ConfigParseError::UriError(e)),
         };
 

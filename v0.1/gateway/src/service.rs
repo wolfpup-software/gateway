@@ -55,7 +55,7 @@ impl Service<Request<Incoming>> for Svc {
 
     fn call(&self, mut req: Request<Incoming>) -> Self::Future {
         // http1 and http2 headers
-        let requested_uri = match get_uri_from_host_or_authority(&req) {
+        let requested_uri = match get_host_from_uri_or_host_header(&req) {
             Some(uri) => uri,
             _ => {
                 return Box::pin(async {
@@ -107,7 +107,7 @@ fn http_code_response(
         )
 }
 
-fn get_uri_from_host_or_authority(req: &Request<Incoming>) -> Option<String> {
+fn get_host_from_uri_or_host_header(req: &Request<Incoming>) -> Option<String> {
     // http2
     if req.version() == hyper::Version::HTTP_2 {
         return match req.uri().host() {
@@ -125,6 +125,7 @@ fn get_uri_from_host_or_authority(req: &Request<Incoming>) -> Option<String> {
         _ => return None,
     };
 
+    // verify host header is a URI
     let uri = match http::Uri::try_from(host_str) {
         Ok(u) => u,
         _ => return None,
@@ -135,7 +136,6 @@ fn get_uri_from_host_or_authority(req: &Request<Incoming>) -> Option<String> {
         _ => None,
     }
 }
-
 
 // might be easier to manipulate strings
 fn create_dest_uri(
