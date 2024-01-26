@@ -6,7 +6,7 @@ use http_body_util::combinators::BoxBody;
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
 use hyper::client::conn::{http1, http2};
-use hyper::header::{HeaderValue, CONTENT_TYPE};
+use hyper::header::CONTENT_TYPE;
 use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::TokioExecutor;
 use hyper_util::rt::TokioIo;
@@ -15,7 +15,7 @@ use tokio::net::TcpStream;
 
 pub type BoxedResponse = Response<BoxBody<bytes::Bytes, hyper::Error>>;
 
-const HTML: &str = "text/html; charset=utf-8";
+const CONTENT_TYPE_VALUE: &str = "text/html; charset=utf-8";
 const AUTHORITY_FROM_URI_ERROR: &str = "failed to retrieve URI from upstream URI";
 const UPSTREAM_CONNECTION_ERROR: &str = "failed to establish connection to upstream server";
 const UPSTREAM_HANDSHAKE_ERROR: &str = "upstream server handshake failed";
@@ -27,7 +27,7 @@ pub fn create_error_response(
 ) -> Result<BoxedResponse, http::Error> {
     Response::builder()
         .status(status_code)
-        .header(CONTENT_TYPE, HeaderValue::from_static(HTML))
+        .header(CONTENT_TYPE, CONTENT_TYPE_VALUE)
         .body(
             Full::new(bytes::Bytes::from(body_str))
                 .map_err(|e| match e {})
@@ -143,7 +143,6 @@ pub async fn request_http2_tls_response(
     if let Ok(res) = client.send_request(req).await {
         return Ok(res.map(|b| b.boxed()));
     };
-    // to here
 
     create_error_response(&StatusCode::BAD_GATEWAY, &UNABLE_TO_PROCESS_REQUEST_ERROR)
 }
@@ -178,7 +177,7 @@ async fn create_tcp_stream(addr: &str) -> Option<TokioIo<TcpStream>> {
 }
 
 // this has multiple "types" of errors
-// signal that it is an inappropriate grouping?
+// internal errors are not exposed so no need for errors enum
 async fn create_tls_stream(
     host: &str,
     addr: &str,
@@ -200,4 +199,3 @@ async fn create_tls_stream(
 
     Some(tls_stream)
 }
-

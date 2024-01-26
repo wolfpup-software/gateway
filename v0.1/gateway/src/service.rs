@@ -39,12 +39,15 @@ impl Service<Request<Incoming>> for Svc {
 
     fn call(&self, req: Request<Incoming>) -> Self::Future {
         // http1 and http2 headers
-        let arrival_uri = match get_host_from_uri_or_header(&req) {
+        let arrival_uri = match get_host_from_request(&req) {
             Some(uri) => uri,
             _ => {
                 return Box::pin(async {
                     // bad request
-                    requests::create_error_response(&StatusCode::BAD_GATEWAY, &URI_FROM_REQUEST_ERROR)
+                    requests::create_error_response(
+                        &StatusCode::BAD_GATEWAY,
+                        &URI_FROM_REQUEST_ERROR,
+                    )
                 });
             }
         };
@@ -80,7 +83,7 @@ impl Service<Request<Incoming>> for Svc {
     }
 }
 
-fn get_host_from_uri_or_header(req: &Request<Incoming>) -> Option<String> {
+fn get_host_from_request(req: &Request<Incoming>) -> Option<String> {
     // http2
     if req.version() == hyper::Version::HTTP_2 {
         return match req.uri().host() {

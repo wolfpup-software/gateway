@@ -3,13 +3,8 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use std::collections::HashMap;
 use std::fmt;
-use std::path;
 use std::path::PathBuf;
 use tokio::fs;
-
-const KEY_FILEPATH_ERR: &str = "config did not include an existing key file";
-const CERT_FILEPATH_ERR: &str = "config did not include an existing cert file";
-const PARENT_NOT_FOUND_ERR: &str = "parent directory of config not found";
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Config {
@@ -47,7 +42,7 @@ pub async fn from_filepath(filepath: &PathBuf) -> Result<Config, ConfigError> {
 
     let parent_dir = match config_pathbuff.parent() {
         Some(p) => p.to_path_buf(),
-        _ => return Err(ConfigError::Error(PARENT_NOT_FOUND_ERR)),
+        _ => return Err(ConfigError::Error("parent directory of config not found")),
     };
 
     // build json conifg
@@ -67,7 +62,9 @@ pub async fn from_filepath(filepath: &PathBuf) -> Result<Config, ConfigError> {
         Err(e) => return Err(ConfigError::IoError(e)),
     };
     if key.is_dir() {
-        return Err(ConfigError::Error(KEY_FILEPATH_ERR));
+        return Err(ConfigError::Error(
+            "config did not include an existing key file",
+        ));
     }
 
     let cert = match parent_dir.join(&config.cert_filepath).canonicalize() {
@@ -75,7 +72,9 @@ pub async fn from_filepath(filepath: &PathBuf) -> Result<Config, ConfigError> {
         Err(e) => return Err(ConfigError::IoError(e)),
     };
     if cert.is_dir() {
-        return Err(ConfigError::Error(CERT_FILEPATH_ERR));
+        return Err(ConfigError::Error(
+            "config did not include an existing cert file",
+        ));
     }
 
     Ok(Config {
@@ -87,10 +86,8 @@ pub async fn from_filepath(filepath: &PathBuf) -> Result<Config, ConfigError> {
     })
 }
 
-/*
-    Iterate config.addresses and create a <URI host, destination URI>map.
-    ie: Map<example.com, http://some_address:6789>
-*/
+// Map<URI host, destination URI>.
+// ie: Map<example.com, http://some_address:6789>
 pub fn create_address_map(config: &Config) -> Result<HashMap<String, Uri>, ConfigError> {
     let mut hashmap = HashMap::<String, Uri>::new();
     for (arrival_str, dest_str) in &config.addresses {
@@ -101,11 +98,7 @@ pub fn create_address_map(config: &Config) -> Result<HashMap<String, Uri>, Confi
 
         let host = match arrival_uri.host() {
             Some(uri) => uri,
-            _ => {
-                return Err(ConfigError::Error(
-                    "could not parse hosts from addresses",
-                ))
-            }
+            _ => return Err(ConfigError::Error("could not parse hosts from addresses")),
         };
 
         // no need to remove path and query, it is replaced later
