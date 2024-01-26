@@ -40,13 +40,13 @@ async fn main() {
         Ok(f) => f,
         Err(e) => return println!("key error:\n{}", e),
     };
-    let pkcs8 = match Identity::from_pkcs8(&cert, &key) {
+    let identity = match Identity::from_pkcs8(&cert, &key) {
         Ok(pk) => pk,
         Err(e) => return println!("pkcs8 error:\n{}", e),
     };
 
     // create tls acceptor
-    let tls_acceptor = match native_tls::TlsAcceptor::builder(pkcs8).build() {
+    let tls_acceptor = match native_tls::TlsAcceptor::builder(identity).build() {
         Ok(native_acceptor) => tokio_native_tls::TlsAcceptor::from(native_acceptor),
         Err(e) => return println!("native_acceptor error:\n{}", e),
     };
@@ -80,7 +80,7 @@ async fn main() {
         };
 
         tokio::task::spawn(async move {
-            // log response error
+            // log service error
             Builder::new(TokioExecutor::new())
                 .serve_connection(io, service)
                 .await

@@ -176,8 +176,6 @@ async fn create_tcp_stream(addr: &str) -> Option<TokioIo<TcpStream>> {
     }
 }
 
-// this has multiple "types" of errors
-// internal errors are not exposed so no need for errors enum
 async fn create_tls_stream(
     host: &str,
     addr: &str,

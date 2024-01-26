@@ -50,7 +50,6 @@ pub async fn from_filepath(filepath: &PathBuf) -> Result<Config, ConfigError> {
         Ok(r) => r,
         Err(e) => return Err(ConfigError::IoError(e)),
     };
-
     let config: Config = match serde_json::from_str(&json_as_str) {
         Ok(j) => j,
         Err(e) => return Err(ConfigError::JsonError(e)),

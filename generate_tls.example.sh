@@ -1,8 +1,4 @@
-# generate_tls.sh
-# brian taylor vann
-#
-# args ($1: destination) ($2: config_filepath)
-
+# edit the following vars to create a custom key and cert 
 
 curr_dir=`dirname $0`
 target_key=$curr_dir/demo/self-signed-key.key
