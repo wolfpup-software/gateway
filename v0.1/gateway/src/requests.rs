@@ -21,18 +21,131 @@ const UPSTREAM_CONNECTION_ERROR: &str = "failed to establish connection to upstr
 const UPSTREAM_HANDSHAKE_ERROR: &str = "upstream server handshake failed";
 const UNABLE_TO_PROCESS_REQUEST_ERROR: &str = "unable to process request";
 
-pub fn http_code_response(
-    code: &StatusCode,
+pub fn create_error_response(
+    status_code: &StatusCode,
     body_str: &'static str,
 ) -> Result<BoxedResponse, http::Error> {
     Response::builder()
-        .status(code)
+        .status(status_code)
         .header(CONTENT_TYPE, HeaderValue::from_static(HTML))
         .body(
             Full::new(bytes::Bytes::from(body_str))
                 .map_err(|e| match e {})
                 .boxed(),
         )
+}
+
+pub async fn request_http1_response(req: Request<Incoming>) -> Result<BoxedResponse, http::Error> {
+    let (_, addr) = match get_host_and_authority(&req.uri()) {
+        Some(stream) => stream,
+        _ => return create_error_response(&StatusCode::BAD_REQUEST, &AUTHORITY_FROM_URI_ERROR),
+    };
+
+    let io = match create_tcp_stream(&addr).await {
+        Some(stream) => stream,
+        _ => return create_error_response(&StatusCode::BAD_GATEWAY, &UPSTREAM_CONNECTION_ERROR),
+    };
+
+    let (mut sender, conn) = match http1::handshake(io).await {
+        Ok(handshake) => handshake,
+        _ => return create_error_response(&StatusCode::BAD_GATEWAY, &UPSTREAM_HANDSHAKE_ERROR),
+    };
+
+    tokio::task::spawn(async move {
+        if let Err(_err) = conn.await { /* log connection error */ }
+    });
+
+    if let Ok(r) = sender.send_request(req).await {
+        return Ok(r.map(|b| b.boxed()));
+    };
+
+    create_error_response(&StatusCode::BAD_GATEWAY, &UNABLE_TO_PROCESS_REQUEST_ERROR)
+}
+
+pub async fn request_http1_tls_response(
+    req: Request<Incoming>,
+) -> Result<BoxedResponse, http::Error> {
+    let (host, addr) = match get_host_and_authority(&req.uri()) {
+        Some(stream) => stream,
+        _ => return create_error_response(&StatusCode::BAD_REQUEST, &AUTHORITY_FROM_URI_ERROR),
+    };
+
+    let io = match create_tls_stream(&host, &addr).await {
+        Some(stream) => stream,
+        _ => return create_error_response(&StatusCode::BAD_GATEWAY, &UPSTREAM_CONNECTION_ERROR),
+    };
+
+    let (mut sender, conn) = match http1::handshake(io).await {
+        Ok(handshake) => handshake,
+        _ => return create_error_response(&StatusCode::BAD_GATEWAY, &UPSTREAM_HANDSHAKE_ERROR),
+    };
+
+    tokio::task::spawn(async move {
+        if let Err(_err) = conn.await { /* log connection error */ }
+    });
+
+    if let Ok(r) = sender.send_request(req).await {
+        return Ok(r.map(|b| b.boxed()));
+    };
+
+    create_error_response(&StatusCode::BAD_GATEWAY, &UNABLE_TO_PROCESS_REQUEST_ERROR)
+}
+
+pub async fn request_http2_response(req: Request<Incoming>) -> Result<BoxedResponse, http::Error> {
+    let (_, addr) = match get_host_and_authority(&req.uri()) {
+        Some(stream) => stream,
+        _ => return create_error_response(&StatusCode::BAD_REQUEST, &AUTHORITY_FROM_URI_ERROR),
+    };
+
+    let io = match create_tcp_stream(&addr).await {
+        Some(stream) => stream,
+        _ => return create_error_response(&StatusCode::BAD_GATEWAY, &UPSTREAM_CONNECTION_ERROR),
+    };
+
+    let (mut client, client_conn) = match http2::handshake(TokioExecutor::new(), io).await {
+        Ok(handshake) => handshake,
+        _ => return create_error_response(&StatusCode::BAD_GATEWAY, &UPSTREAM_HANDSHAKE_ERROR),
+    };
+
+    tokio::task::spawn(async move {
+        if let Err(_err) = client_conn.await { /* log connection error */ }
+    });
+
+    if let Ok(res) = client.send_request(req).await {
+        return Ok(res.map(|b| b.boxed()));
+    };
+
+    create_error_response(&StatusCode::BAD_GATEWAY, &UNABLE_TO_PROCESS_REQUEST_ERROR)
+}
+
+pub async fn request_http2_tls_response(
+    req: Request<Incoming>,
+) -> Result<BoxedResponse, http::Error> {
+    let (host, addr) = match get_host_and_authority(&req.uri()) {
+        Some(stream) => stream,
+        _ => return create_error_response(&StatusCode::BAD_REQUEST, &AUTHORITY_FROM_URI_ERROR),
+    };
+
+    let io = match create_tls_stream(&host, &addr).await {
+        Some(stream) => stream,
+        _ => return create_error_response(&StatusCode::BAD_GATEWAY, &UPSTREAM_CONNECTION_ERROR),
+    };
+
+    let (mut client, client_conn) = match http2::handshake(TokioExecutor::new(), io).await {
+        Ok(handshake) => handshake,
+        _ => return create_error_response(&StatusCode::BAD_GATEWAY, &UPSTREAM_HANDSHAKE_ERROR),
+    };
+
+    tokio::task::spawn(async move {
+        if let Err(_err) = client_conn.await { /* log connection error */ }
+    });
+
+    if let Ok(res) = client.send_request(req).await {
+        return Ok(res.map(|b| b.boxed()));
+    };
+    // to here
+
+    create_error_response(&StatusCode::BAD_GATEWAY, &UNABLE_TO_PROCESS_REQUEST_ERROR)
 }
 
 fn get_host_and_authority(uri: &Uri) -> Option<(&str, String)> {
@@ -88,115 +201,3 @@ async fn create_tls_stream(
     Some(tls_stream)
 }
 
-pub async fn request_http1_response(req: Request<Incoming>) -> Result<BoxedResponse, http::Error> {
-    let (_, addr) = match get_host_and_authority(&req.uri()) {
-        Some(stream) => stream,
-        _ => return http_code_response(&StatusCode::BAD_REQUEST, &AUTHORITY_FROM_URI_ERROR),
-    };
-
-    let io = match create_tcp_stream(&addr).await {
-        Some(stream) => stream,
-        _ => return http_code_response(&StatusCode::BAD_GATEWAY, &UPSTREAM_CONNECTION_ERROR),
-    };
-
-    let (mut sender, conn) = match http1::handshake(io).await {
-        Ok(handshake) => handshake,
-        _ => return http_code_response(&StatusCode::BAD_GATEWAY, &UPSTREAM_HANDSHAKE_ERROR),
-    };
-
-    tokio::task::spawn(async move {
-        if let Err(_err) = conn.await { /* log connection error */ }
-    });
-
-    if let Ok(r) = sender.send_request(req).await {
-        return Ok(r.map(|b| b.boxed()));
-    };
-
-    http_code_response(&StatusCode::BAD_GATEWAY, &UNABLE_TO_PROCESS_REQUEST_ERROR)
-}
-
-pub async fn request_http1_tls_response(
-    req: Request<Incoming>,
-) -> Result<BoxedResponse, http::Error> {
-    let (host, addr) = match get_host_and_authority(&req.uri()) {
-        Some(stream) => stream,
-        _ => return http_code_response(&StatusCode::BAD_REQUEST, &AUTHORITY_FROM_URI_ERROR),
-    };
-
-    let io = match create_tls_stream(&host, &addr).await {
-        Some(stream) => stream,
-        _ => return http_code_response(&StatusCode::BAD_GATEWAY, &UPSTREAM_CONNECTION_ERROR),
-    };
-
-    let (mut sender, conn) = match http1::handshake(io).await {
-        Ok(handshake) => handshake,
-        _ => return http_code_response(&StatusCode::BAD_GATEWAY, &UPSTREAM_HANDSHAKE_ERROR),
-    };
-
-    tokio::task::spawn(async move {
-        if let Err(_err) = conn.await { /* log connection error */ }
-    });
-
-    if let Ok(r) = sender.send_request(req).await {
-        return Ok(r.map(|b| b.boxed()));
-    };
-
-    http_code_response(&StatusCode::BAD_GATEWAY, &UNABLE_TO_PROCESS_REQUEST_ERROR)
-}
-
-pub async fn request_http2_response(req: Request<Incoming>) -> Result<BoxedResponse, http::Error> {
-    let (_, addr) = match get_host_and_authority(&req.uri()) {
-        Some(stream) => stream,
-        _ => return http_code_response(&StatusCode::BAD_REQUEST, &AUTHORITY_FROM_URI_ERROR),
-    };
-
-    let io = match create_tcp_stream(&addr).await {
-        Some(stream) => stream,
-        _ => return http_code_response(&StatusCode::BAD_GATEWAY, &UPSTREAM_CONNECTION_ERROR),
-    };
-
-    let (mut client, client_conn) = match http2::handshake(TokioExecutor::new(), io).await {
-        Ok(handshake) => handshake,
-        _ => return http_code_response(&StatusCode::BAD_GATEWAY, &UPSTREAM_HANDSHAKE_ERROR),
-    };
-
-    tokio::task::spawn(async move {
-        if let Err(_err) = client_conn.await { /* log connection error */ }
-    });
-
-    if let Ok(res) = client.send_request(req).await {
-        return Ok(res.map(|b| b.boxed()));
-    };
-
-    http_code_response(&StatusCode::BAD_GATEWAY, &UNABLE_TO_PROCESS_REQUEST_ERROR)
-}
-
-pub async fn request_http2_tls_response(
-    req: Request<Incoming>,
-) -> Result<BoxedResponse, http::Error> {
-    let (host, addr) = match get_host_and_authority(&req.uri()) {
-        Some(stream) => stream,
-        _ => return http_code_response(&StatusCode::BAD_REQUEST, &AUTHORITY_FROM_URI_ERROR),
-    };
-
-    let io = match create_tls_stream(&host, &addr).await {
-        Some(stream) => stream,
-        _ => return http_code_response(&StatusCode::BAD_GATEWAY, &UPSTREAM_CONNECTION_ERROR),
-    };
-
-    let (mut client, client_conn) = match http2::handshake(TokioExecutor::new(), io).await {
-        Ok(handshake) => handshake,
-        _ => return http_code_response(&StatusCode::BAD_GATEWAY, &UPSTREAM_HANDSHAKE_ERROR),
-    };
-
-    tokio::task::spawn(async move {
-        if let Err(_err) = client_conn.await { /* log connection error */ }
-    });
-
-    if let Ok(res) = client.send_request(req).await {
-        return Ok(res.map(|b| b.boxed()));
-    };
-    // to here
-
-    http_code_response(&StatusCode::BAD_GATEWAY, &UNABLE_TO_PROCESS_REQUEST_ERROR)
-}

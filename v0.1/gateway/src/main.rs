@@ -1,8 +1,7 @@
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto::Builder;
 use native_tls::Identity;
-use std::env;
-use std::path;
+use std::{env, path};
 use std::sync::Arc;
 use tokio::fs;
 use tokio::net::TcpListener;
@@ -18,7 +17,6 @@ async fn main() {
         Some(a) => path::PathBuf::from(a),
         None => return println!("argument error:\nconfig params not found."),
     };
-
     let config = match config::from_filepath(&args).await {
         Ok(c) => c,
         Err(e) => return println!("config error:\n{}", e),
@@ -59,7 +57,6 @@ async fn main() {
         Err(e) => return println!("tcp listener error:\n{}", e),
     };
 
-    // sever loop
     loop {
         // rate limiting on _remote_addr
         let (socket, _remote_addr) = match listener.accept().await {

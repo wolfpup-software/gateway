@@ -1,15 +1,14 @@
-use collections::HashMap;
 use http::Uri;
-use path::PathBuf;
 use serde::{Deserialize, Serialize};
 use serde_json;
-use std::collections;
+use std::collections::HashMap;
 use std::fmt;
 use std::path;
+use std::path::PathBuf;
 use tokio::fs;
 
-const FILEPATH_KEY_ERR: &str = "config did not include an existing key file";
-const FILEPATH_CERT_ERR: &str = "config did not include an existing cert file";
+const KEY_FILEPATH_ERR: &str = "config did not include an existing key file";
+const CERT_FILEPATH_ERR: &str = "config did not include an existing cert file";
 const PARENT_NOT_FOUND_ERR: &str = "parent directory of config not found";
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -68,7 +67,7 @@ pub async fn from_filepath(filepath: &PathBuf) -> Result<Config, ConfigError> {
         Err(e) => return Err(ConfigError::IoError(e)),
     };
     if key.is_dir() {
-        return Err(ConfigError::Error(FILEPATH_KEY_ERR));
+        return Err(ConfigError::Error(KEY_FILEPATH_ERR));
     }
 
     let cert = match parent_dir.join(&config.cert_filepath).canonicalize() {
@@ -76,7 +75,7 @@ pub async fn from_filepath(filepath: &PathBuf) -> Result<Config, ConfigError> {
         Err(e) => return Err(ConfigError::IoError(e)),
     };
     if cert.is_dir() {
-        return Err(ConfigError::Error(FILEPATH_CERT_ERR));
+        return Err(ConfigError::Error(CERT_FILEPATH_ERR));
     }
 
     Ok(Config {

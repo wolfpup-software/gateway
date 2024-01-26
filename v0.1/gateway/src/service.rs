@@ -25,8 +25,8 @@ use crate::requests;
 const HTTP: &str = "http";
 const HTTPS: &str = "https";
 const HOST: &str = "host";
-const URI_FROM_REQUEST_ERROR: &str = "could not retrieve URI from request";
-const UPSTREAM_URI_ERROR: &str = "could create a upstream URI from request";
+const URI_FROM_REQUEST_ERROR: &str = "failed to parse URI from request";
+const UPSTREAM_URI_ERROR: &str = "falied to create an upstream URI from request";
 
 pub struct Svc {
     pub addresses: Arc<HashMap<String, http::Uri>>,
@@ -39,22 +39,22 @@ impl Service<Request<Incoming>> for Svc {
 
     fn call(&self, req: Request<Incoming>) -> Self::Future {
         // http1 and http2 headers
-        let requested_uri = match get_host_from_uri_or_header(&req) {
+        let arrival_uri = match get_host_from_uri_or_header(&req) {
             Some(uri) => uri,
             _ => {
                 return Box::pin(async {
                     // bad request
-                    requests::http_code_response(&StatusCode::BAD_GATEWAY, &URI_FROM_REQUEST_ERROR)
+                    requests::create_error_response(&StatusCode::BAD_GATEWAY, &URI_FROM_REQUEST_ERROR)
                 });
             }
         };
 
         // updated req
-        let updated_req = match create_dest_uri(req, &self.addresses, &requested_uri) {
+        let updated_req = match update_request_with_dest_uri(req, &self.addresses, &arrival_uri) {
             Some(uri) => uri,
             _ => {
                 return Box::pin(async {
-                    requests::http_code_response(&StatusCode::BAD_GATEWAY, &UPSTREAM_URI_ERROR)
+                    requests::create_error_response(&StatusCode::BAD_GATEWAY, &UPSTREAM_URI_ERROR)
                 })
             }
         };
@@ -63,7 +63,6 @@ impl Service<Request<Incoming>> for Svc {
             let version = updated_req.version();
             let scheme = match updated_req.uri().scheme() {
                 Some(a) => a.as_str(),
-                // dont serve if no scheme
                 _ => HTTP,
             };
 
@@ -111,8 +110,8 @@ fn get_host_from_uri_or_header(req: &Request<Incoming>) -> Option<String> {
     }
 }
 
-// might be easier to manipulate strings
-fn create_dest_uri(
+// possibly more efficient to manipulate strings
+fn update_request_with_dest_uri(
     mut req: Request<Incoming>,
     addresses: &HashMap<String, http::Uri>,
     uri: &str,
