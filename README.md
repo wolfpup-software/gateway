@@ -1,13 +1,21 @@
-# gateway
+# Gateway
 
 Route requests to local or upstream servers.
 
-## abstract
+## Abstract
 
 A gateway / reverse-proxy written in rust using [tokio](https://tokio.rs/) and
 [hyper](https://hyper.rs/).
 
-## Create a config
+## About
+
+`Gateway` fowwards incoming encrypted http1 and http2 requests to upstream servers.
+
+Upstream TLS / SSL requests must have valid TLS certificates.
+
+## How to use
+
+### Create a config
 
 A JSON configuration file is required to run `gateway`.
 
@@ -38,7 +46,7 @@ for routing requests.
 A valid configuration example can be found at
 `gateway/v0.1/gateway.example.json`
 
-## Install gateway
+### Install gateway
 
 Execute the following to install `gateway`.
 
@@ -47,7 +55,7 @@ git clone https://github.com/herebythere/gateway
 cargo install --path gateway/v0.1/gateway
 ```
 
-## Run gateway
+### Run gateway
 
 The `gateway` application accepts one argument from the command line:
 
