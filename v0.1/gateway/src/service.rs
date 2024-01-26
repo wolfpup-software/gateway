@@ -73,9 +73,7 @@ impl Service<Request<Incoming>> for Svc {
                 (hyper::Version::HTTP_2, HTTPS) => {
                     requests::send_http2_tls_request(updated_req).await
                 }
-                (hyper::Version::HTTP_2, HTTP) => {
-                    requests::send_http2_request(updated_req).await
-                }
+                (hyper::Version::HTTP_2, HTTP) => requests::send_http2_request(updated_req).await,
                 (_, HTTPS) => requests::send_http1_tls_request(updated_req).await,
                 _ => requests::send_http1_request(updated_req).await,
             }
