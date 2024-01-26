@@ -71,13 +71,13 @@ impl Service<Request<Incoming>> for Svc {
 
             match (version, scheme) {
                 (hyper::Version::HTTP_2, HTTPS) => {
-                    requests::request_http2_tls_response(updated_req).await
+                    requests::send_http2_tls_request(updated_req).await
                 }
                 (hyper::Version::HTTP_2, HTTP) => {
-                    requests::request_http2_response(updated_req).await
+                    requests::send_http2_request(updated_req).await
                 }
-                (_, HTTPS) => requests::request_http1_tls_response(updated_req).await,
-                _ => requests::request_http1_response(updated_req).await,
+                (_, HTTPS) => requests::send_http1_tls_request(updated_req).await,
+                _ => requests::send_http1_request(updated_req).await,
             }
         });
     }

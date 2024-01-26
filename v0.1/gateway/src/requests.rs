@@ -35,7 +35,7 @@ pub fn create_error_response(
         )
 }
 
-pub async fn request_http1_response(req: Request<Incoming>) -> Result<BoxedResponse, http::Error> {
+pub async fn send_http1_request(req: Request<Incoming>) -> Result<BoxedResponse, http::Error> {
     let (_, addr) = match get_host_and_authority(&req.uri()) {
         Some(stream) => stream,
         _ => return create_error_response(&StatusCode::BAD_REQUEST, &AUTHORITY_FROM_URI_ERROR),
@@ -62,7 +62,7 @@ pub async fn request_http1_response(req: Request<Incoming>) -> Result<BoxedRespo
     create_error_response(&StatusCode::BAD_GATEWAY, &UNABLE_TO_PROCESS_REQUEST_ERROR)
 }
 
-pub async fn request_http1_tls_response(
+pub async fn send_http1_tls_request(
     req: Request<Incoming>,
 ) -> Result<BoxedResponse, http::Error> {
     let (host, addr) = match get_host_and_authority(&req.uri()) {
@@ -91,7 +91,7 @@ pub async fn request_http1_tls_response(
     create_error_response(&StatusCode::BAD_GATEWAY, &UNABLE_TO_PROCESS_REQUEST_ERROR)
 }
 
-pub async fn request_http2_response(req: Request<Incoming>) -> Result<BoxedResponse, http::Error> {
+pub async fn send_http2_request(req: Request<Incoming>) -> Result<BoxedResponse, http::Error> {
     let (_, addr) = match get_host_and_authority(&req.uri()) {
         Some(stream) => stream,
         _ => return create_error_response(&StatusCode::BAD_REQUEST, &AUTHORITY_FROM_URI_ERROR),
@@ -118,7 +118,7 @@ pub async fn request_http2_response(req: Request<Incoming>) -> Result<BoxedRespo
     create_error_response(&StatusCode::BAD_GATEWAY, &UNABLE_TO_PROCESS_REQUEST_ERROR)
 }
 
-pub async fn request_http2_tls_response(
+pub async fn send_http2_tls_request(
     req: Request<Incoming>,
 ) -> Result<BoxedResponse, http::Error> {
     let (host, addr) = match get_host_and_authority(&req.uri()) {
