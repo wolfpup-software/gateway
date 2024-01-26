@@ -1,23 +1,15 @@
-use std::env;
-use std::path;
-use std::sync::Arc;
-
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto::Builder;
 use native_tls::Identity;
+use std::env;
+use std::path;
+use std::sync::Arc;
 use tokio::fs;
 use tokio::net::TcpListener;
 
 mod config;
+mod requests;
 mod service;
-
-/*
-    split service and responses
-
-    compile and test
-
-    move on to file server
-*/
 
 #[tokio::main]
 async fn main() {
