@@ -37,7 +37,7 @@ impl Service<Request<Incoming>> for Svc {
     type Error = http::Error;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
-    fn call(&self, mut req: Request<Incoming>) -> Self::Future {
+    fn call(&self, req: Request<Incoming>) -> Self::Future {
         // http1 and http2 headers
         let requested_uri = match get_host_from_uri_or_header(&req) {
             Some(uri) => uri,

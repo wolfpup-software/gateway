@@ -12,36 +12,6 @@ const FILEPATH_KEY_ERR: &str = "config did not include an existing key file";
 const FILEPATH_CERT_ERR: &str = "config did not include an existing cert file";
 const PARENT_NOT_FOUND_ERR: &str = "parent directory of config not found";
 
-pub enum ConfigError<'a> {
-    IoError(std::io::Error),
-    JsonError(serde_json::Error),
-    Error(&'a str),
-}
-
-impl fmt::Display for ConfigError<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            ConfigError::IoError(io_error) => write!(f, "{}", io_error),
-            ConfigError::JsonError(json_error) => write!(f, "{}", json_error),
-            ConfigError::Error(error) => write!(f, "{}", error),
-        }
-    }
-}
-
-pub enum ConfigParseError<'a> {
-    UriError(<http::Uri as TryFrom<String>>::Error),
-    Error(&'a str),
-}
-
-impl fmt::Display for ConfigParseError<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            ConfigParseError::UriError(json_error) => write!(f, "{}", json_error),
-            ConfigParseError::Error(error) => write!(f, "{}", error),
-        }
-    }
-}
-
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Config {
     pub host: String,
@@ -49,6 +19,24 @@ pub struct Config {
     pub key_filepath: PathBuf,
     pub cert_filepath: PathBuf,
     pub addresses: HashMap<String, String>,
+}
+
+pub enum ConfigError<'a> {
+    IoError(std::io::Error),
+    JsonError(serde_json::Error),
+    UriError(<http::Uri as TryFrom<String>>::Error),
+    Error(&'a str),
+}
+
+impl fmt::Display for ConfigError<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ConfigError::IoError(io_error) => write!(f, "{}", io_error),
+            ConfigError::UriError(json_error) => write!(f, "{}", json_error),
+            ConfigError::JsonError(json_error) => write!(f, "{}", json_error),
+            ConfigError::Error(error) => write!(f, "{}", error),
+        }
+    }
 }
 
 pub async fn from_filepath(filepath: &PathBuf) -> Result<Config, ConfigError> {
@@ -104,18 +92,18 @@ pub async fn from_filepath(filepath: &PathBuf) -> Result<Config, ConfigError> {
     Iterate config.addresses and create a <URI host, destination URI>map.
     ie: Map<example.com, http://some_address:6789>
 */
-pub fn create_address_map(config: &Config) -> Result<HashMap<String, Uri>, ConfigParseError> {
+pub fn create_address_map(config: &Config) -> Result<HashMap<String, Uri>, ConfigError> {
     let mut hashmap = HashMap::<String, Uri>::new();
     for (arrival_str, dest_str) in &config.addresses {
         let arrival_uri = match Uri::try_from(arrival_str) {
             Ok(uri) => uri,
-            Err(e) => return Err(ConfigParseError::UriError(e)),
+            Err(e) => return Err(ConfigError::UriError(e)),
         };
 
         let host = match arrival_uri.host() {
             Some(uri) => uri,
             _ => {
-                return Err(ConfigParseError::Error(
+                return Err(ConfigError::Error(
                     "could not parse hosts from addresses",
                 ))
             }
@@ -124,7 +112,7 @@ pub fn create_address_map(config: &Config) -> Result<HashMap<String, Uri>, Confi
         // no need to remove path and query, it is replaced later
         let dest_uri = match Uri::try_from(dest_str) {
             Ok(uri) => uri,
-            Err(e) => return Err(ConfigParseError::UriError(e)),
+            Err(e) => return Err(ConfigError::UriError(e)),
         };
 
         hashmap.insert(host.to_string(), dest_uri);
