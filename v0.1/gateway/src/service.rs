@@ -12,36 +12,21 @@
     Response body is a semi-informative error.
 */
 
-use http_body_util::combinators::BoxBody;
-use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
-use hyper::client::conn::{http1, http2};
-use hyper::header::{HeaderValue, CONTENT_TYPE};
 use hyper::service::Service;
-use hyper::{Request, Response, StatusCode};
-use hyper_util::rt::TokioExecutor;
-use hyper_util::rt::TokioIo;
-use native_tls::TlsConnector;
+use hyper::{Request, StatusCode};
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use tokio::net::TcpStream;
 
 use crate::requests;
 
 const HTTP: &str = "http";
 const HTTPS: &str = "https";
-const HTML: &str = "text/html; charset=utf-8";
 const HOST: &str = "host";
-
-const AUTHORITY_FROM_URI_ERROR: &str = "could not retrieve URI from upstream URI";
 const URI_FROM_REQUEST_ERROR: &str = "could not retrieve URI from request";
 const UPSTREAM_URI_ERROR: &str = "could create a upstream URI from request";
-const UPSTREAM_CONNECTION_ERROR: &str = "could not establish connection to upstream server";
-const UPSTREAM_HANDSHAKE_ERROR: &str = "upstream server handshake failed";
-const UNABLE_TO_PROCESS_REQUEST_ERROR: &str = "unable to process request";
-
 
 pub struct Svc {
     pub addresses: Arc<HashMap<String, http::Uri>>,
