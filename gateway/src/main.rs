@@ -6,7 +6,8 @@ use std::{env, path};
 use tokio::fs;
 use tokio::net::TcpListener;
 
-mod config;
+use config;
+
 mod requests;
 mod service;
 
