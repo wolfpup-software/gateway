@@ -1,0 +1,20 @@
+[package]
+name = "gateway"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+hyper = { workspace = true }
+tokio = { workspace = true }
+bytes = { workspace = true }
+tokio-util = { workspace = true }
+tokio-native-tls = { workspace = true }
+http-body-util = { workspace = true }
+hyper-util = { workspace = true }
+native-tls = { workspace = true }
+http = { workspace = true }
+futures-util = { workspace = true }
+
+config = { path="../config" }
