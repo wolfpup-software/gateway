@@ -44,7 +44,7 @@ requests to upstream servers. Only the `authority` of a URI will be used
 for routing requests.
 
 A valid configuration example can be found at
-`gateway/v0.1/gateway.example.json`
+`gateway/gateway.example.json`
 
 ### Install gateway
 
@@ -52,7 +52,7 @@ Execute the following to install `gateway`.
 
 ```
 git clone https://github.com/herebythere/gateway
-cargo install --path gateway/v0.1/gateway
+cargo install --path gateway/gateway
 ```
 
 ### Run gateway
@@ -69,7 +69,7 @@ Execute the following to generate a self-signed certificate and run `gateway`.
 
 ```
 bash gateway/generate_tls.sh
-gateway gateway/v0.1/gateway.example.json
+gateway gateway/gateway.example.json
 ```
 
 Open a browser and visit `https://localhost:4000`.
