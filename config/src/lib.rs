@@ -9,10 +9,10 @@ use tokio::fs;
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Config {
     pub host: String,
-    pub port: u16,
     pub key_filepath: PathBuf,
     pub cert_filepath: PathBuf,
-    pub addresses: HashMap<String, String>,
+    pub addresses: Vec<(String, String)>,
+    pub dangerous_unsigned_tls_addresses: Vec<(String, String)>,
 }
 
 pub enum ConfigError<'a> {
@@ -82,6 +82,7 @@ pub async fn from_filepath(filepath: &PathBuf) -> Result<Config, ConfigError> {
         key_filepath: key,
         cert_filepath: cert,
         addresses: config.addresses,
+        dangerous_unsigned_tls_addresses: config.dangerous_unsigned_tls_addresses,
     })
 }
 
