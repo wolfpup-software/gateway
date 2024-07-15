@@ -52,9 +52,9 @@ pub async fn get_response(
     };
 
     match (version, scheme) {
-        (hyper::Version::HTTP_2, HTTPS) => send_http2_tls_request(req).await,
+        (hyper::Version::HTTP_2, HTTPS) => send_http2_tls_request(req, is_dangerous).await,
         (hyper::Version::HTTP_2, HTTP) => send_http2_request(req).await,
-        (_, HTTPS) => send_http1_tls_request(req).await,
+        (_, HTTPS) => send_http1_tls_request(req, is_dangerous).await,
         _ => send_http1_request(req).await,
     }
 }
@@ -86,13 +86,16 @@ pub async fn send_http1_request(req: Request<Incoming>) -> Result<BoxedResponse,
     create_error_response(&StatusCode::BAD_GATEWAY, &UNABLE_TO_PROCESS_REQUEST_ERROR)
 }
 
-pub async fn send_http1_tls_request(req: Request<Incoming>) -> Result<BoxedResponse, http::Error> {
+pub async fn send_http1_tls_request(
+    req: Request<Incoming>,
+    is_dangerous: bool,
+) -> Result<BoxedResponse, http::Error> {
     let (host, addr) = match get_host_and_authority(&req.uri()) {
         Some(stream) => stream,
         _ => return create_error_response(&StatusCode::BAD_REQUEST, &AUTHORITY_FROM_URI_ERROR),
     };
 
-    let io = match create_tls_stream(&host, &addr).await {
+    let io = match create_tls_stream(&host, &addr, is_dangerous).await {
         Some(stream) => stream,
         _ => return create_error_response(&StatusCode::BAD_GATEWAY, &UPSTREAM_CONNECTION_ERROR),
     };
@@ -140,13 +143,16 @@ pub async fn send_http2_request(req: Request<Incoming>) -> Result<BoxedResponse,
     create_error_response(&StatusCode::BAD_GATEWAY, &UNABLE_TO_PROCESS_REQUEST_ERROR)
 }
 
-pub async fn send_http2_tls_request(req: Request<Incoming>) -> Result<BoxedResponse, http::Error> {
+pub async fn send_http2_tls_request(
+    req: Request<Incoming>,
+    is_dangerous: bool,
+) -> Result<BoxedResponse, http::Error> {
     let (host, addr) = match get_host_and_authority(&req.uri()) {
         Some(stream) => stream,
         _ => return create_error_response(&StatusCode::BAD_REQUEST, &AUTHORITY_FROM_URI_ERROR),
     };
 
-    let io = match create_tls_stream(&host, &addr).await {
+    let io = match create_tls_stream(&host, &addr, is_dangerous).await {
         Some(stream) => stream,
         _ => return create_error_response(&StatusCode::BAD_GATEWAY, &UPSTREAM_CONNECTION_ERROR),
     };
@@ -199,11 +205,18 @@ async fn create_tcp_stream(addr: &str) -> Option<TokioIo<TcpStream>> {
 async fn create_tls_stream(
     host: &str,
     addr: &str,
+    is_dangerous: bool,
 ) -> Option<TokioIo<tokio_native_tls::TlsStream<TcpStream>>> {
-    let tls_connector = match TlsConnector::new() {
-        Ok(cx) => tokio_native_tls::TlsConnector::from(cx),
+    let mut builder = TlsConnector::builder();
+    if is_dangerous {
+        builder.danger_accept_invalid_certs(true);
+    }
+    let cx = match builder.build() {
+        Ok(c) => c,
         _ => return None,
     };
+
+    let tls_connector = tokio_native_tls::TlsConnector::from(cx);
 
     let client_stream = match TcpStream::connect(addr).await {
         Ok(s) => s,
