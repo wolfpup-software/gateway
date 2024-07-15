@@ -6,13 +6,18 @@ use std::fmt;
 use std::path::PathBuf;
 use tokio::fs;
 
+pub enum TargetAddress {
+    Safe,
+    Dangerous,
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Config {
     pub host: String,
-    pub port: u16,
     pub key_filepath: PathBuf,
     pub cert_filepath: PathBuf,
-    pub addresses: HashMap<String, String>,
+    pub addresses: Vec<(String, String)>,
+    pub dangerous_unsigned_addresses: Vec<(String, String)>,
 }
 
 pub enum ConfigError<'a> {
@@ -78,18 +83,37 @@ pub async fn from_filepath(filepath: &PathBuf) -> Result<Config, ConfigError> {
 
     Ok(Config {
         host: config.host,
-        port: config.port,
         key_filepath: key,
         cert_filepath: cert,
         addresses: config.addresses,
+        dangerous_unsigned_addresses: config.dangerous_unsigned_addresses,
     })
 }
 
+// Now we need some qualities
+// host => URI, safe, dangerous
+// host => uri
 // Map<URI host, destination URI>.
 // ie: Map<example.com, http://some_address:6789>
-pub fn create_address_map(config: &Config) -> Result<HashMap<String, Uri>, ConfigError> {
-    let mut hashmap = HashMap::<String, Uri>::new();
-    for (arrival_str, dest_str) in &config.addresses {
+pub fn create_address_map(config: &Config) -> Result<HashMap<String, (Uri, bool)>, ConfigError> {
+    let mut hashmap = HashMap::<String, (Uri, bool)>::new();
+    if let Err(e) = create_address_map_bit(&mut hashmap, &config.addresses, false) {
+        return Err(e);
+    };
+    if let Err(e) = create_address_map_bit(&mut hashmap, &config.dangerous_unsigned_addresses, true)
+    {
+        return Err(e);
+    };
+
+    Ok(hashmap)
+}
+
+pub fn create_address_map_bit<'a>(
+    url_map: &mut HashMap<String, (Uri, bool)>,
+    addresses: &Vec<(String, String)>,
+    is_dangerous: bool,
+) -> Result<(), ConfigError<'a>> {
+    for (arrival_str, dest_str) in addresses {
         let arrival_uri = match Uri::try_from(arrival_str) {
             Ok(uri) => uri,
             Err(e) => return Err(ConfigError::UriError(e)),
@@ -106,8 +130,7 @@ pub fn create_address_map(config: &Config) -> Result<HashMap<String, Uri>, Confi
             Err(e) => return Err(ConfigError::UriError(e)),
         };
 
-        hashmap.insert(host.to_string(), dest_uri);
+        url_map.insert(host.to_string(), (dest_uri, is_dangerous));
     }
-
-    Ok(hashmap)
+    Ok(())
 }

@@ -1,9 +1,11 @@
 {
-    "host": "127.0.0.1",
-    "port": 4000,
-    "key_filepath": "./demo/self-signed-key.key",
-    "cert_filepath": "./demo/self-signed-cert.crt",
-    "addresses": {
-      "localhost:4000": "127.0.0.1:3000"
-    }
+  "host": "127.0.0.1:4000",
+  "key_filepath": "./demo/self-signed-key.key",
+  "cert_filepath": "./demo/self-signed-cert.crt",
+  "addresses": [
+    ["localhost:4000", "127.0.0.1:3000"]
+  ],
+  "dangerous_unsigned_addresses": [
+    ["localhost:4001", "https://self.signed.address.com"]
+  ]
 }

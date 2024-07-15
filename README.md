@@ -24,16 +24,18 @@ Configuration schema:
 ```
 {
   "host": <string>,
-  "port": <number>,
   "key_filepath": <string>,
   "cert_filepath": <string>,
-  "addresses": {
-    <string>: <string>,
-  }
+  "addresses": [
+    [<origin_address>, <target_address>]
+  ],
+  "dangerously_unsigned_addresses": [
+    [<origin_address>, <target_address>]
+  ],
 }
 ```
 
-The `host` and `port` properties define the address of the server.
+The `host` property defines the address of the server.
 
 The `key_filepath` and `cert_filepath` properties define the filepath of the
 TLS certificate needed to establish TLS connections. They can be relative
@@ -42,6 +44,10 @@ to the location of the config.
 The `addresses` property defines a key value map of URIs to route incoming
 requests to upstream servers. Only the `authority` of a URI will be used
 for routing requests.
+
+The `dangerously_unsigned_addresses` allows `gateway` to make requests to servers with unsigned TLS certificates. It's intended for self signed TLS certificates on LANs.
+
+ONLY USE `dangerously_unsigned_addresses` WITH EXTREME CAUTION. Ideally never.
 
 A valid configuration example can be found at
 `gateway/gateway.example.json`
