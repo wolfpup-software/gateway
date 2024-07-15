@@ -12,6 +12,7 @@
     Response body is a semi-informative error.
 */
 
+use http::uri::InvalidUriParts;
 use hyper::body::Incoming;
 use hyper::service::Service;
 use hyper::{Request, StatusCode};
@@ -22,8 +23,6 @@ use std::sync::Arc;
 
 use crate::requests;
 
-const HTTP: &str = "http";
-const HTTPS: &str = "https";
 const HOST: &str = "host";
 const URI_FROM_REQUEST_ERROR: &str = "failed to parse URI from request";
 const UPSTREAM_URI_ERROR: &str = "falied to create an upstream URI from request";
@@ -79,24 +78,22 @@ impl Service<Request<Incoming>> for Svc {
 }
 
 fn get_host_from_request(req: &Request<Incoming>) -> Option<String> {
-    // http2
-    if req.version() == hyper::Version::HTTP_2 {
-        return match req.uri().host() {
-            Some(s) => Some(s.to_string()),
-            _ => None,
-        };
-    }
+    // http 2
+    if let Some(s) = req.uri().host() {
+        return Some(s.to_string());
+    };
 
-    // http1.1
-    let host_str = match req.headers().get(HOST) {
-        Some(h) => match h.to_str() {
-            Ok(hst) => hst,
-            _ => return None,
-        },
+    // http 1.1
+    let host_header = match req.headers().get(HOST) {
+        Some(h) => h,
         _ => return None,
     };
 
-    // verify host header is a URI
+    let host_str = match host_header.to_str() {
+        Ok(h_str) => h_str,
+        _ => return None,
+    };
+
     let uri = match http::Uri::try_from(host_str) {
         Ok(u) => u,
         _ => return None,
@@ -109,13 +106,16 @@ fn get_host_from_request(req: &Request<Incoming>) -> Option<String> {
 }
 
 // possibly more efficient to manipulate strings
-fn update_request_with_dest_uri(req: &mut Request<Incoming>, uri: http::Uri) -> Result<(), ()> {
+fn update_request_with_dest_uri(
+    req: &mut Request<Incoming>,
+    uri: http::Uri,
+) -> Result<(), InvalidUriParts> {
     let mut dest_parts = uri.clone().into_parts();
     dest_parts.path_and_query = req.uri().path_and_query().cloned();
 
     *req.uri_mut() = match http::Uri::from_parts(dest_parts) {
         Ok(u) => u,
-        _ => return Err(()),
+        Err(e) => return Err(e),
     };
 
     Ok(())
