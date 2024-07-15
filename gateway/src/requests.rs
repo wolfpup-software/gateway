@@ -20,6 +20,11 @@ const AUTHORITY_FROM_URI_ERROR: &str = "failed to retrieve URI from upstream URI
 const UPSTREAM_CONNECTION_ERROR: &str = "failed to establish connection to upstream server";
 const UPSTREAM_HANDSHAKE_ERROR: &str = "upstream server handshake failed";
 const UNABLE_TO_PROCESS_REQUEST_ERROR: &str = "unable to process request";
+const HTTP: &str = "http";
+const HTTPS: &str = "https";
+const HOST: &str = "host";
+const URI_FROM_REQUEST_ERROR: &str = "failed to parse URI from request";
+const UPSTREAM_URI_ERROR: &str = "falied to create an upstream URI from request";
 
 pub fn create_error_response(
     status_code: &StatusCode,
@@ -33,6 +38,25 @@ pub fn create_error_response(
                 .map_err(|e| match e {})
                 .boxed(),
         )
+}
+
+pub async fn get_response(
+    req: Request<Incoming>,
+    is_dangerous: bool,
+) -> Result<BoxedResponse, http::Error> {
+    // send to requests here
+    let version = req.version();
+    let scheme = match req.uri().scheme() {
+        Some(a) => a.as_str(),
+        _ => HTTP,
+    };
+
+    match (version, scheme) {
+        (hyper::Version::HTTP_2, HTTPS) => send_http2_tls_request(req).await,
+        (hyper::Version::HTTP_2, HTTP) => send_http2_request(req).await,
+        (_, HTTPS) => send_http1_tls_request(req).await,
+        _ => send_http1_request(req).await,
+    }
 }
 
 pub async fn send_http1_request(req: Request<Incoming>) -> Result<BoxedResponse, http::Error> {

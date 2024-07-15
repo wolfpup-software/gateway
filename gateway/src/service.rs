@@ -54,7 +54,7 @@ impl Service<Request<Incoming>> for Svc {
 
         // get target host from requested host
         let (target_uri, is_dangerous) = match self.addresses.get(&req_uri) {
-            Some((trgt_uri, is_dngrs)) => (trgt_uri, is_dngrs),
+            Some((trgt_uri, is_dngrs)) => (trgt_uri.clone(), is_dngrs.clone()),
             _ => {
                 return Box::pin(async {
                     // bad request
@@ -62,33 +62,19 @@ impl Service<Request<Incoming>> for Svc {
                         &StatusCode::BAD_GATEWAY,
                         &URI_FROM_REQUEST_ERROR,
                     )
-                })
+                });
             }
         };
 
         // updated req with target host
-        if let Err(_) = update_request_with_dest_uri(&mut req, &target_uri) {
+        if let Err(_) = update_request_with_dest_uri(&mut req, target_uri) {
             return Box::pin(async {
                 requests::create_error_response(&StatusCode::BAD_GATEWAY, &UPSTREAM_URI_ERROR)
             });
         };
 
         // return response
-        return Box::pin(async {
-            // send to requests here
-            let version = req.version();
-            let scheme = match req.uri().scheme() {
-                Some(a) => a.as_str(),
-                _ => HTTP,
-            };
-
-            match (version, scheme) {
-                (hyper::Version::HTTP_2, HTTPS) => requests::send_http2_tls_request(req).await,
-                (hyper::Version::HTTP_2, HTTP) => requests::send_http2_request(req).await,
-                (_, HTTPS) => requests::send_http1_tls_request(req).await,
-                _ => requests::send_http1_request(req).await,
-            }
-        });
+        return Box::pin(async move { requests::get_response(req, is_dangerous).await });
     }
 }
 
@@ -123,7 +109,7 @@ fn get_host_from_request(req: &Request<Incoming>) -> Option<String> {
 }
 
 // possibly more efficient to manipulate strings
-fn update_request_with_dest_uri(req: &mut Request<Incoming>, uri: &http::Uri) -> Result<(), ()> {
+fn update_request_with_dest_uri(req: &mut Request<Incoming>, uri: http::Uri) -> Result<(), ()> {
     let mut dest_parts = uri.clone().into_parts();
     dest_parts.path_and_query = req.uri().path_and_query().cloned();
 
