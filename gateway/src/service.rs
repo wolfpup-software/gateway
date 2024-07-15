@@ -29,7 +29,7 @@ const URI_FROM_REQUEST_ERROR: &str = "failed to parse URI from request";
 const UPSTREAM_URI_ERROR: &str = "falied to create an upstream URI from request";
 
 pub struct Svc {
-    pub addresses: Arc<HashMap<String, http::Uri>>,
+    pub addresses: Arc<HashMap<String, (http::Uri, bool)>>,
 }
 
 impl Service<Request<Incoming>> for Svc {
@@ -37,9 +37,9 @@ impl Service<Request<Incoming>> for Svc {
     type Error = http::Error;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
-    fn call(&self, req: Request<Incoming>) -> Self::Future {
-        // http1 and http2 headers
-        let arrival_uri = match get_host_from_request(&req) {
+    fn call(&self, mut req: Request<Incoming>) -> Self::Future {
+        // get requested host
+        let req_uri = match get_host_from_request(&req) {
             Some(uri) => uri,
             _ => {
                 return Box::pin(async {
@@ -52,30 +52,41 @@ impl Service<Request<Incoming>> for Svc {
             }
         };
 
-        // updated req
-        let updated_req = match update_request_with_dest_uri(req, &self.addresses, &arrival_uri) {
-            Some(uri) => uri,
+        // get target host from requested host
+        let (target_uri, is_dangerous) = match self.addresses.get(&req_uri) {
+            Some((trgt_uri, is_dngrs)) => (trgt_uri, is_dngrs),
             _ => {
                 return Box::pin(async {
-                    requests::create_error_response(&StatusCode::BAD_GATEWAY, &UPSTREAM_URI_ERROR)
+                    // bad request
+                    requests::create_error_response(
+                        &StatusCode::BAD_GATEWAY,
+                        &URI_FROM_REQUEST_ERROR,
+                    )
                 })
             }
         };
 
+        // updated req with target host
+        if let Err(_) = update_request_with_dest_uri(&mut req, &target_uri) {
+            return Box::pin(async {
+                requests::create_error_response(&StatusCode::BAD_GATEWAY, &UPSTREAM_URI_ERROR)
+            });
+        };
+
+        // return response
         return Box::pin(async {
-            let version = updated_req.version();
-            let scheme = match updated_req.uri().scheme() {
+            // send to requests here
+            let version = req.version();
+            let scheme = match req.uri().scheme() {
                 Some(a) => a.as_str(),
                 _ => HTTP,
             };
 
             match (version, scheme) {
-                (hyper::Version::HTTP_2, HTTPS) => {
-                    requests::send_http2_tls_request(updated_req).await
-                }
-                (hyper::Version::HTTP_2, HTTP) => requests::send_http2_request(updated_req).await,
-                (_, HTTPS) => requests::send_http1_tls_request(updated_req).await,
-                _ => requests::send_http1_request(updated_req).await,
+                (hyper::Version::HTTP_2, HTTPS) => requests::send_http2_tls_request(req).await,
+                (hyper::Version::HTTP_2, HTTP) => requests::send_http2_request(req).await,
+                (_, HTTPS) => requests::send_http1_tls_request(req).await,
+                _ => requests::send_http1_request(req).await,
             }
         });
     }
@@ -112,21 +123,14 @@ fn get_host_from_request(req: &Request<Incoming>) -> Option<String> {
 }
 
 // possibly more efficient to manipulate strings
-fn update_request_with_dest_uri(
-    mut req: Request<Incoming>,
-    addresses: &HashMap<String, http::Uri>,
-    uri: &str,
-) -> Option<Request<Incoming>> {
-    let mut dest_parts = match addresses.get(uri) {
-        Some(dest_uri) => dest_uri.clone().into_parts(),
-        _ => return None,
-    };
+fn update_request_with_dest_uri(req: &mut Request<Incoming>, uri: &http::Uri) -> Result<(), ()> {
+    let mut dest_parts = uri.clone().into_parts();
     dest_parts.path_and_query = req.uri().path_and_query().cloned();
 
     *req.uri_mut() = match http::Uri::from_parts(dest_parts) {
         Ok(u) => u,
-        _ => return None,
+        _ => return Err(()),
     };
 
-    Some(req)
+    Ok(())
 }

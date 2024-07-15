@@ -24,7 +24,7 @@ async fn main() {
     };
 
     // get addresses
-    let host_address = config.host.clone() + ":" + &config.port.to_string();
+    let host_address = config.host.clone();
     // if URIs fail to parse, the server fails to run.
     let addresses = match config::create_address_map(&config) {
         Ok(addrs) => addrs,
