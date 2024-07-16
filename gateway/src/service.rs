@@ -1,4 +1,5 @@
 use http::uri::InvalidUriParts;
+use http::HeaderValue;
 use hyper::body::Incoming;
 use hyper::service::Service;
 use hyper::{Request, StatusCode};
@@ -11,6 +12,7 @@ use crate::requests;
 
 use config;
 
+const CYCLE_DETECT: &str = "wolfpup-gateway-cycle-detect";
 const URI_FROM_REQUEST_ERROR: &str = "failed to find upstream URI from request";
 const UPSTREAM_URI_ERROR: &str = "falied to update request with upstream URI";
 
@@ -24,8 +26,16 @@ impl Service<Request<Incoming>> for Svc {
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
     fn call(&self, mut req: Request<Incoming>) -> Self::Future {
-        // check if cycle header is available
-        // return if present
+        // drop request if cycle detected
+        if let Err(e) = detect_or_add_cycle_protection(&mut req) {
+            return Box::pin(async {
+                // bad request
+                requests::create_error_response(&StatusCode::LOOP_DETECTED, e)
+            });
+        };
+        // add cycle detection
+        req.headers_mut()
+            .insert(CYCLE_DETECT, HeaderValue::from_static(""));
 
         let req_uri = match get_host_from_request(&req) {
             Some(uri) => uri,
@@ -51,6 +61,7 @@ impl Service<Request<Incoming>> for Svc {
             }
         };
 
+        // the following operations mutate the original request before sends
         if let Err(_) = update_request_with_dest_uri(&mut req, target_uri) {
             return Box::pin(async {
                 requests::create_error_response(
@@ -60,11 +71,21 @@ impl Service<Request<Incoming>> for Svc {
             });
         };
 
-        // add cycle detection
-        // set header wolfpup-cycle-detect
-
         return Box::pin(async move { requests::get_response(req, is_dangerous).await });
     }
+}
+
+fn detect_or_add_cycle_protection<'a>(req: &mut Request<Incoming>) -> Result<(), &'a str> {
+    // drop request if cycle detected
+    if let Some(_) = req.headers().get(CYCLE_DETECT) {
+        return Err("req is a possible infinite loop");
+    };
+
+    // add cycle detection
+    req.headers_mut()
+        .insert(CYCLE_DETECT, HeaderValue::from_static(""));
+
+    Ok(())
 }
 
 // use the same function that creates a hashmap key "config::get_host_and_port"
