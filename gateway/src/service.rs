@@ -23,6 +23,8 @@ use std::sync::Arc;
 
 use crate::requests;
 
+use config;
+
 const HOST: &str = "host";
 const URI_FROM_REQUEST_ERROR: &str = "failed to parse URI from request";
 const UPSTREAM_URI_ERROR: &str = "falied to create an upstream URI from request";
@@ -44,7 +46,7 @@ impl Service<Request<Incoming>> for Svc {
                 return Box::pin(async {
                     // bad request
                     requests::create_error_response(
-                        &StatusCode::BAD_GATEWAY,
+                        &StatusCode::BAD_REQUEST,
                         &URI_FROM_REQUEST_ERROR,
                     )
                 });
@@ -57,10 +59,7 @@ impl Service<Request<Incoming>> for Svc {
             _ => {
                 return Box::pin(async {
                     // bad request
-                    requests::create_error_response(
-                        &StatusCode::BAD_GATEWAY,
-                        &URI_FROM_REQUEST_ERROR,
-                    )
+                    requests::create_error_response(&StatusCode::NOT_FOUND, &URI_FROM_REQUEST_ERROR)
                 });
             }
         };
@@ -68,7 +67,10 @@ impl Service<Request<Incoming>> for Svc {
         // updated req with target host
         if let Err(_) = update_request_with_dest_uri(&mut req, target_uri) {
             return Box::pin(async {
-                requests::create_error_response(&StatusCode::BAD_GATEWAY, &UPSTREAM_URI_ERROR)
+                requests::create_error_response(
+                    &StatusCode::INTERNAL_SERVER_ERROR,
+                    &UPSTREAM_URI_ERROR,
+                )
             });
         };
 
@@ -79,8 +81,8 @@ impl Service<Request<Incoming>> for Svc {
 
 fn get_host_from_request(req: &Request<Incoming>) -> Option<String> {
     // http 2
-    if let Some(s) = req.uri().host() {
-        return Some(s.to_string());
+    if let Ok(s) = config::get_host_and_port(req.uri()) {
+        return Some(s);
     };
 
     // http 1.1
@@ -99,8 +101,8 @@ fn get_host_from_request(req: &Request<Incoming>) -> Option<String> {
         _ => return None,
     };
 
-    match uri.host() {
-        Some(host) => Some(host.to_string()),
+    match config::get_host_and_port(&uri) {
+        Ok(u) => Some(u),
         _ => None,
     }
 }

@@ -20,20 +20,6 @@ const UNABLE_TO_PROCESS_REQUEST_ERROR: &str = "unable to process request";
 const HTTP: &str = "http";
 const HTTPS: &str = "https";
 
-pub fn create_error_response(
-    status_code: &StatusCode,
-    body_str: &'static str,
-) -> Result<BoxedResponse, http::Error> {
-    Response::builder()
-        .status(status_code)
-        .header(CONTENT_TYPE, CONTENT_TYPE_VALUE)
-        .body(
-            Full::new(bytes::Bytes::from(body_str))
-                .map_err(|e| match e {})
-                .boxed(),
-        )
-}
-
 pub async fn get_response(
     req: Request<Incoming>,
     is_dangerous: bool,
@@ -46,10 +32,24 @@ pub async fn get_response(
 
     match (version, scheme) {
         (hyper::Version::HTTP_2, HTTPS) => send_http2_tls_request(req, is_dangerous).await,
-        (hyper::Version::HTTP_2, HTTP) => send_http2_request(req).await,
+        (hyper::Version::HTTP_2, _) => send_http2_request(req).await,
         (_, HTTPS) => send_http1_tls_request(req, is_dangerous).await,
         _ => send_http1_request(req).await,
     }
+}
+
+pub fn create_error_response(
+    status_code: &StatusCode,
+    body_str: &'static str,
+) -> Result<BoxedResponse, http::Error> {
+    Response::builder()
+        .status(status_code)
+        .header(CONTENT_TYPE, CONTENT_TYPE_VALUE)
+        .body(
+            Full::new(bytes::Bytes::from(body_str))
+                .map_err(|e| match e {})
+                .boxed(),
+        )
 }
 
 fn get_host_and_authority(uri: &Uri) -> Option<(&str, String)> {

@@ -143,16 +143,23 @@ pub fn create_address_map_bit<'a>(
 // get host and port
 pub fn get_host_and_port<'a>(uri: &Uri) -> Result<String, ConfigError<'a>> {
     // get port if available
-    let mut host = match uri.host() {
-        Some(h) => h.to_string(),
+    let host = match uri.host() {
+        Some(h) => h,
         _ => return Err(ConfigError::Error("could not parse hosts from addresses")),
     };
 
-    // get port if available
-    if let Some(port) = uri.port() {
-        host.push_str(":");
-        host.push_str(&port.to_string());
-    }
+    let scheme = match uri.scheme() {
+        Some(h) => h.as_str(),
+        _ => return Err(ConfigError::Error("could not parse hosts from addresses")),
+    };
 
-    Ok(host)
+    let port = match uri.port() {
+        Some(p) => p.to_string(),
+        _ => match scheme {
+            "https" => "443".to_string(),
+            _ => "80".to_string(),
+        },
+    };
+
+    Ok(host.to_string() + ":" + &port)
 }
