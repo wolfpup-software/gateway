@@ -14,10 +14,8 @@ use config;
 
 pub type BoxedResponse = Response<BoxBody<bytes::Bytes, hyper::Error>>;
 
-const AUTHORITY_FROM_URI_ERROR: &str = "failed to retrieve URI from upstream URI";
-const UPSTREAM_CONNECTION_ERROR: &str = "failed to establish connection to upstream server";
-const UPSTREAM_HANDSHAKE_ERROR: &str = "upstream server handshake failed";
-const UNABLE_TO_PROCESS_REQUEST_ERROR: &str = "unable to process request";
+const UPSTREAM_HANDSHAKE_ERROR: &str = "upstream handshake failed";
+const FAILED_TO_PROCESS_REQUEST_ERROR: &str = "failed to process request";
 
 pub async fn get_response(
     req: Request<Incoming>,
@@ -51,67 +49,62 @@ pub fn create_error_response(
         )
 }
 
-fn get_host_and_authority(uri: &Uri) -> Option<(&str, String)> {
+fn get_host_and_authority<'a>(uri: &Uri) -> Result<(&str, String), &'a str> {
     match (uri.host(), config::get_host_and_port(uri)) {
-        (Some(host), Some(host_and_port)) => Some((host, host_and_port)),
-        _ => None,
+        (Some(host), Some(host_and_port)) => Ok((host, host_and_port)),
+        _ => Err("failed to retrieve URI from upstream URI"),
     }
 }
 
-async fn create_tcp_stream(addr: &str) -> Option<TokioIo<TcpStream>> {
+async fn create_tcp_stream<'a>(addr: &str) -> Result<TokioIo<TcpStream>, &'a str> {
     match TcpStream::connect(&addr).await {
-        Ok(client_stream) => Some(TokioIo::new(client_stream)),
-        _ => None,
+        Ok(client_stream) => Ok(TokioIo::new(client_stream)),
+        _ => Err("failed to establish tcp connection"),
     }
 }
 
-async fn create_tls_stream(
+async fn create_tls_stream<'a>(
     host: &str,
     addr: &str,
     is_dangerous: bool,
-) -> Option<TokioIo<tokio_native_tls::TlsStream<TcpStream>>> {
+) -> Result<TokioIo<tokio_native_tls::TlsStream<TcpStream>>, &'a str> {
     let mut builder = TlsConnector::builder();
     if is_dangerous {
         builder.danger_accept_invalid_certs(true);
     }
     let cx = match builder.build() {
         Ok(c) => c,
-        _ => return None,
+        _ => return Err("failed to build TLS connection"),
     };
 
     let tls_connector = tokio_native_tls::TlsConnector::from(cx);
     let client_stream = match TcpStream::connect(addr).await {
         Ok(s) => s,
-        _ => return None,
+        _ => return Err("failed to establish TCP connection"),
     };
 
     let tls_stream = match tls_connector.connect(host, client_stream).await {
         Ok(s) => TokioIo::new(s),
-        _ => return None,
+        _ => return Err("failed to establish TLS connection"),
     };
 
-    Some(tls_stream)
+    Ok(tls_stream)
 }
 
 async fn send_http1_request(req: Request<Incoming>) -> Result<BoxedResponse, http::Error> {
     let (_, addr) = match get_host_and_authority(&req.uri()) {
-        Some(stream) => stream,
-        _ => return create_error_response(&StatusCode::BAD_REQUEST, &AUTHORITY_FROM_URI_ERROR),
+        Ok(stream) => stream,
+        Err(e) => return create_error_response(&StatusCode::BAD_REQUEST, e),
     };
 
     let io = match create_tcp_stream(&addr).await {
-        Some(stream) => stream,
-        _ => {
-            return create_error_response(
-                &StatusCode::SERVICE_UNAVAILABLE,
-                &UPSTREAM_CONNECTION_ERROR,
-            )
-        }
+        Ok(stream) => stream,
+        Err(e) => return create_error_response(&StatusCode::SERVICE_UNAVAILABLE, e),
     };
 
     let (mut sender, conn) = match http1::handshake(io).await {
         Ok(handshake) => handshake,
-        _ => {
+        Err(_) => {
             return create_error_response(
                 &StatusCode::SERVICE_UNAVAILABLE,
                 &UPSTREAM_HANDSHAKE_ERROR,
@@ -127,7 +120,7 @@ async fn send_http1_request(req: Request<Incoming>) -> Result<BoxedResponse, htt
         return Ok(r.map(|b| b.boxed()));
     };
 
-    create_error_response(&StatusCode::BAD_GATEWAY, &UNABLE_TO_PROCESS_REQUEST_ERROR)
+    create_error_response(&StatusCode::BAD_GATEWAY, &FAILED_TO_PROCESS_REQUEST_ERROR)
 }
 
 async fn send_http1_tls_request(
@@ -135,23 +128,18 @@ async fn send_http1_tls_request(
     is_dangerous: bool,
 ) -> Result<BoxedResponse, http::Error> {
     let (host, addr) = match get_host_and_authority(&req.uri()) {
-        Some(stream) => stream,
-        _ => return create_error_response(&StatusCode::BAD_REQUEST, &AUTHORITY_FROM_URI_ERROR),
+        Ok(stream) => stream,
+        Err(e) => return create_error_response(&StatusCode::BAD_REQUEST, e),
     };
 
     let io = match create_tls_stream(&host, &addr, is_dangerous).await {
-        Some(stream) => stream,
-        _ => {
-            return create_error_response(
-                &StatusCode::SERVICE_UNAVAILABLE,
-                &UPSTREAM_CONNECTION_ERROR,
-            )
-        }
+        Ok(stream) => stream,
+        Err(e) => return create_error_response(&StatusCode::SERVICE_UNAVAILABLE, e),
     };
 
     let (mut sender, conn) = match http1::handshake(io).await {
         Ok(handshake) => handshake,
-        _ => {
+        Err(_) => {
             return create_error_response(
                 &StatusCode::SERVICE_UNAVAILABLE,
                 &UPSTREAM_HANDSHAKE_ERROR,
@@ -167,28 +155,23 @@ async fn send_http1_tls_request(
         return Ok(r.map(|b| b.boxed()));
     };
 
-    create_error_response(&StatusCode::BAD_GATEWAY, &UNABLE_TO_PROCESS_REQUEST_ERROR)
+    create_error_response(&StatusCode::BAD_GATEWAY, &FAILED_TO_PROCESS_REQUEST_ERROR)
 }
 
 async fn send_http2_request(req: Request<Incoming>) -> Result<BoxedResponse, http::Error> {
     let (_, addr) = match get_host_and_authority(&req.uri()) {
-        Some(stream) => stream,
-        _ => return create_error_response(&StatusCode::BAD_REQUEST, &AUTHORITY_FROM_URI_ERROR),
+        Ok(stream) => stream,
+        Err(e) => return create_error_response(&StatusCode::BAD_REQUEST, e),
     };
 
     let io = match create_tcp_stream(&addr).await {
-        Some(stream) => stream,
-        _ => {
-            return create_error_response(
-                &StatusCode::SERVICE_UNAVAILABLE,
-                &UPSTREAM_CONNECTION_ERROR,
-            )
-        }
+        Ok(stream) => stream,
+        Err(e) => return create_error_response(&StatusCode::SERVICE_UNAVAILABLE, e),
     };
 
     let (mut client, client_conn) = match http2::handshake(TokioExecutor::new(), io).await {
         Ok(handshake) => handshake,
-        _ => {
+        Err(_) => {
             return create_error_response(
                 &StatusCode::SERVICE_UNAVAILABLE,
                 &UPSTREAM_HANDSHAKE_ERROR,
@@ -204,7 +187,7 @@ async fn send_http2_request(req: Request<Incoming>) -> Result<BoxedResponse, htt
         return Ok(res.map(|b| b.boxed()));
     };
 
-    create_error_response(&StatusCode::BAD_GATEWAY, &UNABLE_TO_PROCESS_REQUEST_ERROR)
+    create_error_response(&StatusCode::BAD_GATEWAY, &FAILED_TO_PROCESS_REQUEST_ERROR)
 }
 
 async fn send_http2_tls_request(
@@ -212,23 +195,18 @@ async fn send_http2_tls_request(
     is_dangerous: bool,
 ) -> Result<BoxedResponse, http::Error> {
     let (host, addr) = match get_host_and_authority(&req.uri()) {
-        Some(stream) => stream,
-        _ => return create_error_response(&StatusCode::BAD_REQUEST, &AUTHORITY_FROM_URI_ERROR),
+        Ok(stream) => stream,
+        Err(e) => return create_error_response(&StatusCode::BAD_REQUEST, e),
     };
 
     let io = match create_tls_stream(&host, &addr, is_dangerous).await {
-        Some(stream) => stream,
-        _ => {
-            return create_error_response(
-                &StatusCode::SERVICE_UNAVAILABLE,
-                &UPSTREAM_CONNECTION_ERROR,
-            )
-        }
+        Ok(stream) => stream,
+        Err(e) => return create_error_response(&StatusCode::SERVICE_UNAVAILABLE, e),
     };
 
     let (mut client, client_conn) = match http2::handshake(TokioExecutor::new(), io).await {
         Ok(handshake) => handshake,
-        _ => {
+        Err(_) => {
             return create_error_response(
                 &StatusCode::SERVICE_UNAVAILABLE,
                 &UPSTREAM_HANDSHAKE_ERROR,
@@ -244,5 +222,5 @@ async fn send_http2_tls_request(
         return Ok(res.map(|b| b.boxed()));
     };
 
-    create_error_response(&StatusCode::BAD_GATEWAY, &UNABLE_TO_PROCESS_REQUEST_ERROR)
+    create_error_response(&StatusCode::BAD_GATEWAY, &FAILED_TO_PROCESS_REQUEST_ERROR)
 }
