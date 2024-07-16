@@ -39,7 +39,6 @@ impl Service<Request<Incoming>> for Svc {
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
     fn call(&self, mut req: Request<Incoming>) -> Self::Future {
-        // get requested host
         let req_uri = match get_host_from_request(&req) {
             Some(uri) => uri,
             _ => {
@@ -64,7 +63,6 @@ impl Service<Request<Incoming>> for Svc {
             }
         };
 
-        // updated req with target host
         if let Err(_) = update_request_with_dest_uri(&mut req, target_uri) {
             return Box::pin(async {
                 requests::create_error_response(
@@ -74,14 +72,13 @@ impl Service<Request<Incoming>> for Svc {
             });
         };
 
-        // return response
         return Box::pin(async move { requests::get_response(req, is_dangerous).await });
     }
 }
 
 fn get_host_from_request(req: &Request<Incoming>) -> Option<String> {
     // http 2
-    if let Ok(s) = config::get_host_and_port(req.uri()) {
+    if let Some(s) = config::get_host_and_port(req.uri()) {
         return Some(s);
     };
 
@@ -101,10 +98,7 @@ fn get_host_from_request(req: &Request<Incoming>) -> Option<String> {
         _ => return None,
     };
 
-    match config::get_host_and_port(&uri) {
-        Ok(u) => Some(u),
-        _ => None,
-    }
+    config::get_host_and_port(&uri)
 }
 
 // possibly more efficient to manipulate strings
@@ -112,7 +106,7 @@ fn update_request_with_dest_uri(
     req: &mut Request<Incoming>,
     uri: http::Uri,
 ) -> Result<(), InvalidUriParts> {
-    let mut dest_parts = uri.clone().into_parts();
+    let mut dest_parts = uri.into_parts();
     dest_parts.path_and_query = req.uri().path_and_query().cloned();
 
     *req.uri_mut() = match http::Uri::from_parts(dest_parts) {

@@ -39,8 +39,6 @@ impl fmt::Display for ConfigError<'_> {
     }
 }
 
-const HTTP: &str = "http";
-
 pub async fn from_filepath(filepath: &PathBuf) -> Result<Config, ConfigError> {
     // get position relative to working directory
     let config_path = match path::absolute(filepath) {
@@ -53,7 +51,6 @@ pub async fn from_filepath(filepath: &PathBuf) -> Result<Config, ConfigError> {
         _ => return Err(ConfigError::Error("parent directory of config not found")),
     };
 
-    // build json conifg
     let json_as_str = match fs::read_to_string(&config_path).await {
         Ok(r) => r,
         Err(e) => return Err(ConfigError::IoError(e)),
@@ -93,25 +90,43 @@ pub async fn from_filepath(filepath: &PathBuf) -> Result<Config, ConfigError> {
     })
 }
 
-// Now we need some qualities
-// host => URI, safe, dangerous
-// host => uri
-// Map<URI host, destination URI>.
-// ie: Map<example.com, http://some_address:6789>
+pub fn get_host_and_port(uri: &Uri) -> Option<String> {
+    let host = match uri.host() {
+        Some(h) => h,
+        _ => return None,
+    };
+
+    let port = match uri.port() {
+        Some(p) => p.to_string(),
+        _ => {
+            let scheme = match uri.scheme() {
+                Some(h) => h.as_str(),
+                _ => "http",
+            };
+
+            match scheme {
+                "https" => "443".to_string(),
+                _ => "80".to_string(),
+            }
+        }
+    };
+
+    Some(host.to_string() + ":" + &port)
+}
+
 pub fn create_address_map(config: &Config) -> Result<HashMap<String, (Uri, bool)>, ConfigError> {
     let mut hashmap = HashMap::<String, (Uri, bool)>::new();
-    if let Err(e) = create_address_map_bit(&mut hashmap, &config.addresses, false) {
+    if let Err(e) = add_addresses_to_map(&mut hashmap, &config.addresses, false) {
         return Err(e);
     };
-    if let Err(e) = create_address_map_bit(&mut hashmap, &config.dangerous_unsigned_addresses, true)
-    {
+    if let Err(e) = add_addresses_to_map(&mut hashmap, &config.dangerous_unsigned_addresses, true) {
         return Err(e);
     };
 
     Ok(hashmap)
 }
 
-pub fn create_address_map_bit<'a>(
+fn add_addresses_to_map<'a>(
     url_map: &mut HashMap<String, (Uri, bool)>,
     addresses: &Vec<(String, String)>,
     is_dangerous: bool,
@@ -123,9 +138,13 @@ pub fn create_address_map_bit<'a>(
         };
 
         // get port if available
-        let mut host = match get_host_and_port(&arrival_uri) {
-            Ok(h) => h.to_string(),
-            Err(e) => return Err(e),
+        let host = match get_host_and_port(&arrival_uri) {
+            Some(h) => h,
+            _ => {
+                return Err(ConfigError::Error(
+                    "could not parse host and port from address",
+                ))
+            }
         };
 
         // no need to remove path and query, it is replaced later
@@ -137,29 +156,4 @@ pub fn create_address_map_bit<'a>(
         url_map.insert(host, (dest_uri, is_dangerous));
     }
     Ok(())
-}
-
-// use same function to pull host and stuff as retreival
-// get host and port
-pub fn get_host_and_port<'a>(uri: &Uri) -> Result<String, ConfigError<'a>> {
-    // get port if available
-    let host = match uri.host() {
-        Some(h) => h,
-        _ => return Err(ConfigError::Error("could not parse hosts from addresses")),
-    };
-
-    let scheme = match uri.scheme() {
-        Some(h) => h.as_str(),
-        _ => return Err(ConfigError::Error("could not parse hosts from addresses")),
-    };
-
-    let port = match uri.port() {
-        Some(p) => p.to_string(),
-        _ => match scheme {
-            "https" => "443".to_string(),
-            _ => "80".to_string(),
-        },
-    };
-
-    Ok(host.to_string() + ":" + &port)
 }
