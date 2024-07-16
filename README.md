@@ -23,7 +23,7 @@ Configuration schema:
 
 ```
 {
-  "host": <string>,
+  "host_and_port": <string>,
   "key_filepath": <string>,
   "cert_filepath": <string>,
   "addresses": [
@@ -35,19 +35,19 @@ Configuration schema:
 }
 ```
 
-The `host` property defines the address of the server.
+The `host_and_port` property defines the address of the server.
 
 The `key_filepath` and `cert_filepath` properties define the filepath of the
 TLS certificate needed to establish TLS connections. They can be relative
 to the location of the config.
 
 The `addresses` property defines a key value map of URIs to route incoming
-requests to upstream servers. Only the `authority` of a URI will be used
+requests to upstream servers. Only the `host` and `port` of a URI will be used
 for routing requests.
 
-The `dangerously_unsigned_addresses` allows `gateway` to make requests to servers with unsigned TLS certificates. It's intended for self signed TLS certificates on LANs.
+ONLY USE `dangerously_unsigned_addresses` WITH EXTREME CAUTION, ideally never.
 
-ONLY USE `dangerously_unsigned_addresses` WITH EXTREME CAUTION. Ideally never.
+The `dangerously_unsigned_addresses` allows `gateway` to make requests to servers with unsigned TLS certificates. It's intended for self-signed TLS certificates on LANs.
 
 A valid configuration example can be found at
 `gateway/gateway.example.json`

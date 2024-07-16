@@ -1,17 +1,5 @@
-/*
-    Relay req to upstream server
-
-    - find host from request
-    - use host to copy upstream URI from address map
-    - replace the path_and_query of the upstream URI with the path_and_query of request URI
-    - request URI is replaced by the the destinataion URI
-    - updated request is relayed to the upstream server
-
-    Errors can stem from both the current server and the upstream server.
-    This server returns HTTP 502 for all failed request originating from this server.
-    Response body is a semi-informative error.
-*/
-
+use http::uri::InvalidUriParts;
+use http::HeaderValue;
 use hyper::body::Incoming;
 use hyper::service::Service;
 use hyper::{Request, StatusCode};
@@ -22,11 +10,11 @@ use std::sync::Arc;
 
 use crate::requests;
 
-const HTTP: &str = "http";
-const HTTPS: &str = "https";
-const HOST: &str = "host";
-const URI_FROM_REQUEST_ERROR: &str = "failed to parse URI from request";
-const UPSTREAM_URI_ERROR: &str = "falied to create an upstream URI from request";
+use config;
+
+const CYCLE_DETECT: &str = "wolfpup-gateway-cycle-detect";
+const URI_FROM_REQUEST_ERROR: &str = "failed to find upstream URI from request";
+const UPSTREAM_URI_ERROR: &str = "falied to update request with upstream URI";
 
 pub struct Svc {
     pub addresses: Arc<HashMap<String, (http::Uri, bool)>>,
@@ -38,14 +26,24 @@ impl Service<Request<Incoming>> for Svc {
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
     fn call(&self, mut req: Request<Incoming>) -> Self::Future {
-        // get requested host
+        // drop request if cycle detected
+        if let Err(e) = detect_or_add_cycle_protection(&mut req) {
+            return Box::pin(async {
+                // bad request
+                requests::create_error_response(&StatusCode::LOOP_DETECTED, e)
+            });
+        };
+        // add cycle detection
+        req.headers_mut()
+            .insert(CYCLE_DETECT, HeaderValue::from_static(""));
+
         let req_uri = match get_host_from_request(&req) {
             Some(uri) => uri,
             _ => {
                 return Box::pin(async {
                     // bad request
                     requests::create_error_response(
-                        &StatusCode::BAD_GATEWAY,
+                        &StatusCode::BAD_REQUEST,
                         &URI_FROM_REQUEST_ERROR,
                     )
                 });
@@ -58,64 +56,75 @@ impl Service<Request<Incoming>> for Svc {
             _ => {
                 return Box::pin(async {
                     // bad request
-                    requests::create_error_response(
-                        &StatusCode::BAD_GATEWAY,
-                        &URI_FROM_REQUEST_ERROR,
-                    )
+                    requests::create_error_response(&StatusCode::NOT_FOUND, &URI_FROM_REQUEST_ERROR)
                 });
             }
         };
 
-        // updated req with target host
+        // the following operations mutate the original request before sends
         if let Err(_) = update_request_with_dest_uri(&mut req, target_uri) {
             return Box::pin(async {
-                requests::create_error_response(&StatusCode::BAD_GATEWAY, &UPSTREAM_URI_ERROR)
+                requests::create_error_response(
+                    &StatusCode::INTERNAL_SERVER_ERROR,
+                    &UPSTREAM_URI_ERROR,
+                )
             });
         };
 
-        // return response
         return Box::pin(async move { requests::get_response(req, is_dangerous).await });
     }
 }
 
-fn get_host_from_request(req: &Request<Incoming>) -> Option<String> {
-    // http2
-    if req.version() == hyper::Version::HTTP_2 {
-        return match req.uri().host() {
-            Some(s) => Some(s.to_string()),
-            _ => None,
-        };
-    }
+fn detect_or_add_cycle_protection<'a>(req: &mut Request<Incoming>) -> Result<(), &'a str> {
+    // drop request if cycle detected
+    if let Some(_) = req.headers().get(CYCLE_DETECT) {
+        return Err("req is a possible infinite loop");
+    };
 
-    // http1.1
-    let host_str = match req.headers().get(HOST) {
-        Some(h) => match h.to_str() {
-            Ok(hst) => hst,
-            _ => return None,
-        },
+    // add cycle detection
+    req.headers_mut()
+        .insert(CYCLE_DETECT, HeaderValue::from_static(""));
+
+    Ok(())
+}
+
+// use the same function that creates a hashmap key "config::get_host_and_port"
+fn get_host_from_request(req: &Request<Incoming>) -> Option<String> {
+    // http 2
+    if let Some(s) = config::get_host_and_port(req.uri()) {
+        return Some(s);
+    };
+
+    // http 1.1
+    let host_header = match req.headers().get("host") {
+        Some(h) => h,
         _ => return None,
     };
 
-    // verify host header is a URI
+    let host_str = match host_header.to_str() {
+        Ok(h_str) => h_str,
+        _ => return None,
+    };
+
     let uri = match http::Uri::try_from(host_str) {
         Ok(u) => u,
         _ => return None,
     };
 
-    match uri.host() {
-        Some(host) => Some(host.to_string()),
-        _ => None,
-    }
+    config::get_host_and_port(&uri)
 }
 
 // possibly more efficient to manipulate strings
-fn update_request_with_dest_uri(req: &mut Request<Incoming>, uri: http::Uri) -> Result<(), ()> {
-    let mut dest_parts = uri.clone().into_parts();
+fn update_request_with_dest_uri(
+    req: &mut Request<Incoming>,
+    uri: http::Uri,
+) -> Result<(), InvalidUriParts> {
+    let mut dest_parts = uri.into_parts();
     dest_parts.path_and_query = req.uri().path_and_query().cloned();
 
     *req.uri_mut() = match http::Uri::from_parts(dest_parts) {
         Ok(u) => u,
-        _ => return Err(()),
+        Err(e) => return Err(e),
     };
 
     Ok(())

@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use std::collections::HashMap;
 use std::fmt;
+use std::path;
 use std::path::PathBuf;
 use tokio::fs;
 
@@ -13,7 +14,7 @@ pub enum TargetAddress {
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Config {
-    pub host: String,
+    pub host_and_port: String,
     pub key_filepath: PathBuf,
     pub cert_filepath: PathBuf,
     pub addresses: Vec<(String, String)>,
@@ -40,18 +41,17 @@ impl fmt::Display for ConfigError<'_> {
 
 pub async fn from_filepath(filepath: &PathBuf) -> Result<Config, ConfigError> {
     // get position relative to working directory
-    let config_pathbuff = match filepath.canonicalize() {
+    let config_path = match path::absolute(filepath) {
         Ok(pb) => pb,
         Err(e) => return Err(ConfigError::IoError(e)),
     };
 
-    let parent_dir = match config_pathbuff.parent() {
+    let parent_dir = match config_path.parent() {
         Some(p) => p.to_path_buf(),
         _ => return Err(ConfigError::Error("parent directory of config not found")),
     };
 
-    // build json conifg
-    let json_as_str = match fs::read_to_string(&config_pathbuff).await {
+    let json_as_str = match fs::read_to_string(&config_path).await {
         Ok(r) => r,
         Err(e) => return Err(ConfigError::IoError(e)),
     };
@@ -61,28 +61,28 @@ pub async fn from_filepath(filepath: &PathBuf) -> Result<Config, ConfigError> {
     };
 
     // create absolute filepaths for key and cert
-    let key = match parent_dir.join(&config.key_filepath).canonicalize() {
+    let key = match path::absolute(parent_dir.join(&config.key_filepath)) {
         Ok(j) => j,
         Err(e) => return Err(ConfigError::IoError(e)),
     };
     if key.is_dir() {
         return Err(ConfigError::Error(
-            "config did not include an existing key file",
+            "failed to create absolute path from relative path for key_filepath",
         ));
     }
 
-    let cert = match parent_dir.join(&config.cert_filepath).canonicalize() {
+    let cert = match path::absolute(parent_dir.join(&config.cert_filepath)) {
         Ok(j) => j,
         Err(e) => return Err(ConfigError::IoError(e)),
     };
     if cert.is_dir() {
         return Err(ConfigError::Error(
-            "config did not include an existing cert file",
+            "failed to create absolute path from relative path for cert_filepath",
         ));
     }
 
     Ok(Config {
-        host: config.host,
+        host_and_port: config.host_and_port,
         key_filepath: key,
         cert_filepath: cert,
         addresses: config.addresses,
@@ -90,25 +90,43 @@ pub async fn from_filepath(filepath: &PathBuf) -> Result<Config, ConfigError> {
     })
 }
 
-// Now we need some qualities
-// host => URI, safe, dangerous
-// host => uri
-// Map<URI host, destination URI>.
-// ie: Map<example.com, http://some_address:6789>
+pub fn get_host_and_port(uri: &Uri) -> Option<String> {
+    let host = match uri.host() {
+        Some(h) => h,
+        _ => return None,
+    };
+
+    let port = match uri.port() {
+        Some(p) => p.to_string(),
+        _ => {
+            let scheme = match uri.scheme() {
+                Some(h) => h.as_str(),
+                _ => "http",
+            };
+
+            match scheme {
+                "https" => "443".to_string(),
+                _ => "80".to_string(),
+            }
+        }
+    };
+
+    Some(host.to_string() + ":" + &port)
+}
+
 pub fn create_address_map(config: &Config) -> Result<HashMap<String, (Uri, bool)>, ConfigError> {
     let mut hashmap = HashMap::<String, (Uri, bool)>::new();
-    if let Err(e) = create_address_map_bit(&mut hashmap, &config.addresses, false) {
+    if let Err(e) = add_addresses_to_map(&mut hashmap, &config.addresses, false) {
         return Err(e);
     };
-    if let Err(e) = create_address_map_bit(&mut hashmap, &config.dangerous_unsigned_addresses, true)
-    {
+    if let Err(e) = add_addresses_to_map(&mut hashmap, &config.dangerous_unsigned_addresses, true) {
         return Err(e);
     };
 
     Ok(hashmap)
 }
 
-pub fn create_address_map_bit<'a>(
+fn add_addresses_to_map<'a>(
     url_map: &mut HashMap<String, (Uri, bool)>,
     addresses: &Vec<(String, String)>,
     is_dangerous: bool,
@@ -119,9 +137,14 @@ pub fn create_address_map_bit<'a>(
             Err(e) => return Err(ConfigError::UriError(e)),
         };
 
-        let host = match arrival_uri.host() {
-            Some(uri) => uri,
-            _ => return Err(ConfigError::Error("could not parse hosts from addresses")),
+        // get port if available
+        let host = match get_host_and_port(&arrival_uri) {
+            Some(h) => h,
+            _ => {
+                return Err(ConfigError::Error(
+                    "could not parse host and port from address",
+                ))
+            }
         };
 
         // no need to remove path and query, it is replaced later
@@ -130,7 +153,7 @@ pub fn create_address_map_bit<'a>(
             Err(e) => return Err(ConfigError::UriError(e)),
         };
 
-        url_map.insert(host.to_string(), (dest_uri, is_dangerous));
+        url_map.insert(host, (dest_uri, is_dangerous));
     }
     Ok(())
 }
