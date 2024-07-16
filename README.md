@@ -23,7 +23,7 @@ Configuration schema:
 
 ```
 {
-  "host": <string>,
+  "authority": <string>,
   "key_filepath": <string>,
   "cert_filepath": <string>,
   "addresses": [
@@ -35,7 +35,7 @@ Configuration schema:
 }
 ```
 
-The `host` property defines the address of the server.
+The `authority` property defines the address of the server.
 
 The `key_filepath` and `cert_filepath` properties define the filepath of the
 TLS certificate needed to establish TLS connections. They can be relative

@@ -39,20 +39,22 @@ impl fmt::Display for ConfigError<'_> {
     }
 }
 
+const HTTP: &str = "http";
+
 pub async fn from_filepath(filepath: &PathBuf) -> Result<Config, ConfigError> {
     // get position relative to working directory
-    let config_pathbuff = match filepath.canonicalize() {
+    let config_path = match path::absolute(filepath) {
         Ok(pb) => pb,
         Err(e) => return Err(ConfigError::IoError(e)),
     };
 
-    let parent_dir = match config_pathbuff.parent() {
+    let parent_dir = match config_path.parent() {
         Some(p) => p.to_path_buf(),
         _ => return Err(ConfigError::Error("parent directory of config not found")),
     };
 
     // build json conifg
-    let json_as_str = match fs::read_to_string(&config_pathbuff).await {
+    let json_as_str = match fs::read_to_string(&config_path).await {
         Ok(r) => r,
         Err(e) => return Err(ConfigError::IoError(e)),
     };
@@ -121,9 +123,9 @@ pub fn create_address_map_bit<'a>(
         };
 
         // get port if available
-        let host = match arrival_uri.host() {
-            Some(uri) => uri,
-            _ => return Err(ConfigError::Error("could not parse hosts from addresses")),
+        let mut host = match get_host_and_port(&arrival_uri) {
+            Ok(h) => h.to_string(),
+            Err(e) => return Err(e),
         };
 
         // no need to remove path and query, it is replaced later
@@ -132,10 +134,25 @@ pub fn create_address_map_bit<'a>(
             Err(e) => return Err(ConfigError::UriError(e)),
         };
 
-        url_map.insert(host.to_string(), (dest_uri, is_dangerous));
+        url_map.insert(host, (dest_uri, is_dangerous));
     }
     Ok(())
 }
 
 // use same function to pull host and stuff as retreival
 // get host and port
+pub fn get_host_and_port<'a>(uri: &Uri) -> Result<String, ConfigError<'a>> {
+    // get port if available
+    let mut host = match uri.host() {
+        Some(h) => h.to_string(),
+        _ => return Err(ConfigError::Error("could not parse hosts from addresses")),
+    };
+
+    // get port if available
+    if let Some(port) = uri.port() {
+        host.push_str(":");
+        host.push_str(&port.to_string());
+    }
+
+    Ok(host)
+}
