@@ -1,17 +1,3 @@
-/*
-    Relay req to upstream server
-
-    - find host from request
-    - use host to copy upstream URI from address map
-    - replace the path_and_query of the upstream URI with the path_and_query of request URI
-    - request URI is replaced by the the destinataion URI
-    - updated request is relayed to the upstream server
-
-    Errors can stem from both the current server and the upstream server.
-    This server returns HTTP 502 for all failed request originating from this server.
-    Response body is a semi-informative error.
-*/
-
 use http::uri::InvalidUriParts;
 use hyper::body::Incoming;
 use hyper::service::Service;
@@ -25,9 +11,8 @@ use crate::requests;
 
 use config;
 
-const HOST: &str = "host";
-const URI_FROM_REQUEST_ERROR: &str = "failed to parse URI from request";
-const UPSTREAM_URI_ERROR: &str = "falied to create an upstream URI from request";
+const URI_FROM_REQUEST_ERROR: &str = "failed to find upstream URI from request";
+const UPSTREAM_URI_ERROR: &str = "falied to update request with upstream URI";
 
 pub struct Svc {
     pub addresses: Arc<HashMap<String, (http::Uri, bool)>>,
@@ -39,6 +24,9 @@ impl Service<Request<Incoming>> for Svc {
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
     fn call(&self, mut req: Request<Incoming>) -> Self::Future {
+        // check if cycle header is available
+        // return if present
+
         let req_uri = match get_host_from_request(&req) {
             Some(uri) => uri,
             _ => {
@@ -72,6 +60,9 @@ impl Service<Request<Incoming>> for Svc {
             });
         };
 
+        // add cycle detection
+        // set header wolfpup-cycle-detect
+
         return Box::pin(async move { requests::get_response(req, is_dangerous).await });
     }
 }
@@ -84,7 +75,7 @@ fn get_host_from_request(req: &Request<Incoming>) -> Option<String> {
     };
 
     // http 1.1
-    let host_header = match req.headers().get(HOST) {
+    let host_header = match req.headers().get("host") {
         Some(h) => h,
         _ => return None,
     };

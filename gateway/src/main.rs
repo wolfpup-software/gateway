@@ -16,14 +16,13 @@ async fn main() {
     // create config
     let args = match env::args().nth(1) {
         Some(a) => path::PathBuf::from(a),
-        None => return println!("config path not provided as argv[0]."),
+        None => return println!("argument error: argv[0] config path not provided"),
     };
     let config = match config::from_filepath(&args).await {
         Ok(c) => c,
         Err(e) => return println!("{}", e),
     };
 
-    // get addresses
     // if URIs fail to parse, the server fails to run.
     let addresses = match config::create_address_map(&config) {
         Ok(addrs) => addrs,
