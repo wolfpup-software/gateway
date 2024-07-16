@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use std::collections::HashMap;
 use std::fmt;
+use std::path;
 use std::path::PathBuf;
 use tokio::fs;
 
@@ -13,7 +14,7 @@ pub enum TargetAddress {
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Config {
-    pub host: String,
+    pub host_and_port: String,
     pub key_filepath: PathBuf,
     pub cert_filepath: PathBuf,
     pub addresses: Vec<(String, String)>,
@@ -61,28 +62,28 @@ pub async fn from_filepath(filepath: &PathBuf) -> Result<Config, ConfigError> {
     };
 
     // create absolute filepaths for key and cert
-    let key = match parent_dir.join(&config.key_filepath).canonicalize() {
+    let key = match path::absolute(parent_dir.join(&config.key_filepath)) {
         Ok(j) => j,
         Err(e) => return Err(ConfigError::IoError(e)),
     };
     if key.is_dir() {
         return Err(ConfigError::Error(
-            "config did not include an existing key file",
+            "failed to create absolute path from relative path for key_filepath",
         ));
     }
 
-    let cert = match parent_dir.join(&config.cert_filepath).canonicalize() {
+    let cert = match path::absolute(parent_dir.join(&config.cert_filepath)) {
         Ok(j) => j,
         Err(e) => return Err(ConfigError::IoError(e)),
     };
     if cert.is_dir() {
         return Err(ConfigError::Error(
-            "config did not include an existing cert file",
+            "failed to create absolute path from relative path for cert_filepath",
         ));
     }
 
     Ok(Config {
-        host: config.host,
+        host_and_port: config.host_and_port,
         key_filepath: key,
         cert_filepath: cert,
         addresses: config.addresses,
@@ -119,6 +120,7 @@ pub fn create_address_map_bit<'a>(
             Err(e) => return Err(ConfigError::UriError(e)),
         };
 
+        // get port if available
         let host = match arrival_uri.host() {
             Some(uri) => uri,
             _ => return Err(ConfigError::Error("could not parse hosts from addresses")),
@@ -134,3 +136,6 @@ pub fn create_address_map_bit<'a>(
     }
     Ok(())
 }
+
+// use same function to pull host and stuff as retreival
+// get host and port
