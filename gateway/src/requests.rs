@@ -53,25 +53,10 @@ pub fn create_error_response(
 }
 
 fn get_host_and_authority(uri: &Uri) -> Option<(&str, String)> {
-    let host = match uri.host() {
-        Some(h) => h,
-        _ => return None,
-    };
-
-    let scheme = match uri.scheme() {
-        Some(s) => s.as_str(),
-        _ => http::uri::Scheme::HTTPS.as_str(),
-    };
-
-    let port = match (uri.port(), scheme) {
-        (Some(p), _) => p.as_u16(),
-        (None, "https") => 443,
-        _ => 80,
-    };
-
-    let authority = host.to_string() + ":" + &port.to_string();
-
-    Some((host, authority))
+    match (uri.host(), config::get_host_and_port(uri)) {
+        (Some(host), Some(host_and_port)) => Some((host, host_and_port)),
+        _ => None,
+    }
 }
 
 async fn create_tcp_stream(addr: &str) -> Option<TokioIo<TcpStream>> {

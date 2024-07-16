@@ -76,6 +76,7 @@ impl Service<Request<Incoming>> for Svc {
     }
 }
 
+// use the same function that creates a hashmap key "config::get_host_and_port"
 fn get_host_from_request(req: &Request<Incoming>) -> Option<String> {
     // http 2
     if let Some(s) = config::get_host_and_port(req.uri()) {
