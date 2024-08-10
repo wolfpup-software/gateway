@@ -18,7 +18,7 @@ pub struct Config {
     pub key_filepath: PathBuf,
     pub cert_filepath: PathBuf,
     pub addresses: Vec<(String, String)>,
-    pub dangerous_unsigned_addresses: Vec<(String, String)>,
+    pub dangerous_self_signed_addresses: Option<Vec<(String, String)>>,
 }
 
 pub enum ConfigError<'a> {
@@ -86,7 +86,7 @@ pub async fn from_filepath(filepath: &PathBuf) -> Result<Config, ConfigError> {
         key_filepath: key,
         cert_filepath: cert,
         addresses: config.addresses,
-        dangerous_unsigned_addresses: config.dangerous_unsigned_addresses,
+        dangerous_self_signed_addresses: config.dangerous_self_signed_addresses,
     })
 }
 
@@ -119,8 +119,11 @@ pub fn create_address_map(config: &Config) -> Result<HashMap<String, (Uri, bool)
     if let Err(e) = add_addresses_to_map(&mut hashmap, &config.addresses, false) {
         return Err(e);
     };
-    if let Err(e) = add_addresses_to_map(&mut hashmap, &config.dangerous_unsigned_addresses, true) {
-        return Err(e);
+
+    if let Some(self_signed_addresses) = &config.dangerous_self_signed_addresses {
+        if let Err(e) = add_addresses_to_map(&mut hashmap, &self_signed_addresses, true) {
+            return Err(e);
+        };
     };
 
     Ok(hashmap)
