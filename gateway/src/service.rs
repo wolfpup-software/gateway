@@ -1,4 +1,3 @@
-use http::uri::InvalidUriParts;
 use http::HeaderValue;
 use hyper::body::Incoming;
 use hyper::service::Service;
@@ -26,13 +25,12 @@ impl Service<Request<Incoming>> for Svc {
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
     fn call(&self, mut req: Request<Incoming>) -> Self::Future {
-        // drop request if cycle detected
         if let Err(e) = detect_or_add_cycle_protection(&mut req) {
             return Box::pin(async {
-                // bad request
                 requests::create_error_response(&StatusCode::LOOP_DETECTED, e)
             });
         };
+
         // add cycle detection
         req.headers_mut()
             .insert(CYCLE_DETECT, HeaderValue::from_static(""));
@@ -54,15 +52,12 @@ impl Service<Request<Incoming>> for Svc {
         let (target_uri, is_dangerous) = match self.addresses.get(&req_uri) {
             Some((trgt_uri, is_dngrs)) => (trgt_uri.clone(), is_dngrs.clone()),
             _ => {
-                println!("could not find address");
                 return Box::pin(async {
                     // bad request
                     requests::create_error_response(&StatusCode::NOT_FOUND, &URI_FROM_REQUEST_ERROR)
                 });
             }
         };
-
-        println!("made it");
 
         // the following operations mutate the original request before sends
         if let Err(_) = update_request_with_dest_uri(&mut req, target_uri) {
@@ -119,16 +114,13 @@ fn get_host_from_request(req: &Request<Incoming>) -> Option<String> {
 }
 
 // possibly more efficient to manipulate strings
-fn update_request_with_dest_uri(
-    req: &mut Request<Incoming>,
-    uri: http::Uri,
-) -> Result<(), String> {
+fn update_request_with_dest_uri(req: &mut Request<Incoming>, uri: http::Uri) -> Result<(), String> {
     let base_path = match uri.path().strip_suffix("/") {
         Some(p) => p.to_string(),
         _ => "".to_string(),
     };
     println!("base {:?}", base_path);
-    
+
     let trgt_path = match req.uri().path_and_query() {
         Some(p) => p.as_str(),
         _ => "",
@@ -139,7 +131,7 @@ fn update_request_with_dest_uri(
     println!("combined {:?}", combined_path);
     let path_and_query = match http::uri::PathAndQuery::try_from(combined_path) {
         Ok(p_q) => p_q,
-        Err(e) => return Err(e.to_string())
+        Err(e) => return Err(e.to_string()),
     };
 
     let mut dest_parts = uri.into_parts();

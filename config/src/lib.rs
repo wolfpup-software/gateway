@@ -136,7 +136,6 @@ fn add_addresses_to_map<'a>(
     addresses: &Vec<(String, String)>,
     is_dangerous: bool,
 ) -> Result<(), ConfigError<'a>> {
-
     for (arrival_str, dest_str) in addresses {
         let arrival_uri = match Uri::try_from(arrival_str) {
             Ok(uri) => uri,

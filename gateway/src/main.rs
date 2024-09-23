@@ -15,7 +15,7 @@ mod service;
 async fn main() {
     match http::uri::PathAndQuery::try_from("/") {
         Ok(p_q) => println!("p_q {:?}", p_q),
-        Err(e) => return println!("p_q error{:?}", e.to_string())
+        Err(e) => return println!("p_q error{:?}", e.to_string()),
     };
 
     // create config
@@ -28,14 +28,13 @@ async fn main() {
         Err(e) => return println!("{}", e),
     };
 
-
-    // if URIs fail to parse, the server fails to run.
+    // if destination URIs fail to parse, the server fails to run.
     let addresses = match config::create_address_map(&config) {
         Ok(addrs) => addrs,
         Err(e) => return println!("{}", e),
     };
     let addresses_arc = Arc::new(addresses);
-    println!("addresses {:?}", addresses_arc);
+
     // tls cert and keys
     let cert = match fs::read(&config.cert_filepath).await {
         Ok(f) => f,
@@ -66,18 +65,15 @@ async fn main() {
         // rate limiting on _remote_addr
         let (socket, _remote_addr) = match listener.accept().await {
             Ok(s) => s,
-            Err(e) => {
+            Err(_e) => {
                 // log socket error
-                println!("socket error{:?}", e);
                 continue;
             }
         };
         let io = match tls_acceptor.clone().accept(socket).await {
             Ok(s) => TokioIo::new(s),
-            Err(e) => {
-                // log tls error
-                println!("io error{:?}", e);
-
+            Err(_e) => {
+                // log accepter error
                 continue;
             }
         };
@@ -88,11 +84,12 @@ async fn main() {
 
         tokio::task::spawn(async move {
             // log service error
-            if let Err(e) = Builder::new(TokioExecutor::new())
+            if let Err(_e) = Builder::new(TokioExecutor::new())
                 .serve_connection(io, service)
-                .await {
-                    println!("serve error{:?}", e);
-                }
+                .await
+            {
+                // log tls error
+            }
         });
     }
 }
