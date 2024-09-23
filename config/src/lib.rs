@@ -91,6 +91,7 @@ pub async fn from_filepath(filepath: &PathBuf) -> Result<Config, ConfigError> {
 }
 
 pub fn get_host_and_port(uri: &Uri) -> Option<String> {
+    println!("get host and port");
     let host = match uri.host() {
         Some(h) => h,
         _ => return None,
@@ -110,6 +111,7 @@ pub fn get_host_and_port(uri: &Uri) -> Option<String> {
             }
         }
     };
+    println!("host port {:?} {:?}", host, port);
 
     Some(host.to_string() + ":" + &port)
 }

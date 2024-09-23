@@ -26,7 +26,6 @@ impl Service<Request<Incoming>> for Svc {
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
     fn call(&self, mut req: Request<Incoming>) -> Self::Future {
-        println!("request incoming");
         // drop request if cycle detected
         if let Err(e) = detect_or_add_cycle_protection(&mut req) {
             return Box::pin(async {
@@ -55,12 +54,15 @@ impl Service<Request<Incoming>> for Svc {
         let (target_uri, is_dangerous) = match self.addresses.get(&req_uri) {
             Some((trgt_uri, is_dngrs)) => (trgt_uri.clone(), is_dngrs.clone()),
             _ => {
+                println!("could not find address");
                 return Box::pin(async {
                     // bad request
                     requests::create_error_response(&StatusCode::NOT_FOUND, &URI_FROM_REQUEST_ERROR)
                 });
             }
         };
+
+        println!("made it");
 
         // the following operations mutate the original request before sends
         if let Err(_) = update_request_with_dest_uri(&mut req, target_uri) {
@@ -111,6 +113,7 @@ fn get_host_from_request(req: &Request<Incoming>) -> Option<String> {
         Ok(u) => u,
         _ => return None,
     };
+    println!("almost get_host_from_request {:?}", uri);
 
     config::get_host_and_port(&uri)
 }
@@ -124,11 +127,13 @@ fn update_request_with_dest_uri(
         Some(p) => p.to_string(),
         _ => "".to_string(),
     };
+    println!("base {:?}", base_path);
     
     let trgt_path = match req.uri().path_and_query() {
         Some(p) => p.as_str(),
         _ => "",
     };
+    println!("target {:?}", trgt_path);
 
     let combined_path = base_path + trgt_path;
     println!("combined {:?}", combined_path);

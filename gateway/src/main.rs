@@ -35,7 +35,7 @@ async fn main() {
         Err(e) => return println!("{}", e),
     };
     let addresses_arc = Arc::new(addresses);
-
+    println!("addresses {:?}", addresses_arc);
     // tls cert and keys
     let cert = match fs::read(&config.cert_filepath).await {
         Ok(f) => f,
@@ -66,8 +66,9 @@ async fn main() {
         // rate limiting on _remote_addr
         let (socket, _remote_addr) = match listener.accept().await {
             Ok(s) => s,
-            Err(_e) => {
+            Err(e) => {
                 // log socket error
+                println!("socket error{:?}", e);
                 continue;
             }
         };
@@ -75,7 +76,7 @@ async fn main() {
             Ok(s) => TokioIo::new(s),
             Err(e) => {
                 // log tls error
-                println!("{:?}", e);
+                println!("io error{:?}", e);
 
                 continue;
             }
@@ -90,7 +91,7 @@ async fn main() {
             if let Err(e) = Builder::new(TokioExecutor::new())
                 .serve_connection(io, service)
                 .await {
-                    println!("{:?}", e);
+                    println!("serve error{:?}", e);
                 }
         });
     }

@@ -1,9 +1,0 @@
-{
-	"host_and_port": "127.0.0.1:4000",
-	"key_filepath": "./demo/self-signed-key.key",
-	"cert_filepath": "./demo/self-signed-cert.crt",
-	"addresses": [
-	  ["http://localhost:4000", "http://127.0.0.1:3000/nested/"]
-	]
-}
-  
