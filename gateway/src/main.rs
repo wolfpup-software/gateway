@@ -13,6 +13,11 @@ mod service;
 
 #[tokio::main]
 async fn main() {
+    match http::uri::PathAndQuery::try_from("/") {
+        Ok(p_q) => println!("p_q {:?}", p_q),
+        Err(e) => return println!("p_q error{:?}", e.to_string())
+    };
+
     // create config
     let args = match env::args().nth(1) {
         Some(a) => path::PathBuf::from(a),
@@ -22,6 +27,7 @@ async fn main() {
         Ok(c) => c,
         Err(e) => return println!("{}", e),
     };
+
 
     // if URIs fail to parse, the server fails to run.
     let addresses = match config::create_address_map(&config) {
@@ -65,11 +71,12 @@ async fn main() {
                 continue;
             }
         };
-
         let io = match tls_acceptor.clone().accept(socket).await {
             Ok(s) => TokioIo::new(s),
-            Err(_e) => {
+            Err(e) => {
                 // log tls error
+                println!("{:?}", e);
+
                 continue;
             }
         };
@@ -80,9 +87,11 @@ async fn main() {
 
         tokio::task::spawn(async move {
             // log service error
-            Builder::new(TokioExecutor::new())
+            if let Err(e) = Builder::new(TokioExecutor::new())
                 .serve_connection(io, service)
-                .await
+                .await {
+                    println!("{:?}", e);
+                }
         });
     }
 }

@@ -26,6 +26,7 @@ impl Service<Request<Incoming>> for Svc {
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
     fn call(&self, mut req: Request<Incoming>) -> Self::Future {
+        println!("request incoming");
         // drop request if cycle detected
         if let Err(e) = detect_or_add_cycle_protection(&mut req) {
             return Box::pin(async {
@@ -118,13 +119,30 @@ fn get_host_from_request(req: &Request<Incoming>) -> Option<String> {
 fn update_request_with_dest_uri(
     req: &mut Request<Incoming>,
     uri: http::Uri,
-) -> Result<(), InvalidUriParts> {
+) -> Result<(), String> {
+    let base_path = match uri.path().strip_suffix("/") {
+        Some(p) => p.to_string(),
+        _ => "".to_string(),
+    };
+    
+    let trgt_path = match req.uri().path_and_query() {
+        Some(p) => p.as_str(),
+        _ => "",
+    };
+
+    let combined_path = base_path + trgt_path;
+    println!("combined {:?}", combined_path);
+    let path_and_query = match http::uri::PathAndQuery::try_from(combined_path) {
+        Ok(p_q) => p_q,
+        Err(e) => return Err(e.to_string())
+    };
+
     let mut dest_parts = uri.into_parts();
-    dest_parts.path_and_query = req.uri().path_and_query().cloned();
+    dest_parts.path_and_query = Some(path_and_query);
 
     *req.uri_mut() = match http::Uri::from_parts(dest_parts) {
         Ok(u) => u,
-        Err(e) => return Err(e),
+        Err(e) => return Err(e.to_string()),
     };
 
     Ok(())
