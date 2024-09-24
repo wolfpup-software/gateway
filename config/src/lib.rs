@@ -91,7 +91,6 @@ pub async fn from_filepath(filepath: &PathBuf) -> Result<Config, ConfigError> {
 }
 
 pub fn get_host_and_port(uri: &Uri) -> Option<String> {
-    println!("get host and port");
     let host = match uri.host() {
         Some(h) => h,
         _ => return None,
@@ -111,7 +110,6 @@ pub fn get_host_and_port(uri: &Uri) -> Option<String> {
             }
         }
     };
-    println!("host port {:?} {:?}", host, port);
 
     Some(host.to_string() + ":" + &port)
 }
@@ -152,13 +150,36 @@ fn add_addresses_to_map<'a>(
             }
         };
 
-        // no need to remove path and query, it is replaced later
-        // println!("{:?}", dest_str);
-        // println!("almost");
+        // no
+        // if uri path is a file, get parent
+        // remove trailing slash
         let dest_uri = match Uri::try_from(dest_str) {
             Ok(uri) => uri,
             Err(e) => return Err(ConfigError::UriError(e)),
         };
+
+        let mut uri_path = path::Path::new(dest_uri.path());
+        if uri_path.is_file() {
+            uri_path = match uri_path.parent() {
+                Some(uri) => uri,
+                _ => return Err(ConfigError::Error("bummer")),
+            }
+        }
+
+        // unix focused? web focused
+        let uri_path_str = uri_path.to_string_lossy();
+        let uri_path_str_stip = match uri_path_str.strip_suffix("/") {
+            Some(stripped) => stripped,
+            _ => &uri_path_str,
+        };
+
+        let path_and_query = match http::uri::PathAndQuery::try_from(uri_path_str_stip) {
+            Ok(p_q) => p_q,
+            Err(e) => return Err(ConfigError::UriError(e)),
+        };
+
+        let mut dest_parts = dest_uri.clone().into_parts();
+        dest_parts.path_and_query = Some(path_and_query);
 
         url_map.insert(host, (dest_uri, is_dangerous));
     }

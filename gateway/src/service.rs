@@ -108,27 +108,27 @@ fn get_host_from_request(req: &Request<Incoming>) -> Option<String> {
         Ok(u) => u,
         _ => return None,
     };
-    println!("almost get_host_from_request {:?}", uri);
 
     config::get_host_and_port(&uri)
 }
 
 // possibly more efficient to manipulate strings
 fn update_request_with_dest_uri(req: &mut Request<Incoming>, uri: http::Uri) -> Result<(), String> {
+    // is this path a dir or a file?
+    // if file get parent
+    // then to string
+    // then strip suffix
     let base_path = match uri.path().strip_suffix("/") {
         Some(p) => p.to_string(),
         _ => "".to_string(),
     };
-    println!("base {:?}", base_path);
 
     let trgt_path = match req.uri().path_and_query() {
         Some(p) => p.as_str(),
         _ => "",
     };
-    println!("target {:?}", trgt_path);
 
     let combined_path = base_path + trgt_path;
-    println!("combined {:?}", combined_path);
     let path_and_query = match http::uri::PathAndQuery::try_from(combined_path) {
         Ok(p_q) => p_q,
         Err(e) => return Err(e.to_string()),
