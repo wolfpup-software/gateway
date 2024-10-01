@@ -11,7 +11,6 @@ use crate::requests;
 
 use config;
 
-// const CYCLE_DETECT: &str = "wolfpup-gateway-cycle-detect";
 const URI_FROM_REQUEST_ERROR: &str = "failed to find upstream URI from request";
 const UPSTREAM_URI_ERROR: &str = "falied to update request with upstream URI";
 
