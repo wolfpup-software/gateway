@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["config", "gateway"]
+members = ["config", "reverse_proxy"]
 
 [workspace.dependencies]
 hyper = { version = "1", features = ["full"] }
