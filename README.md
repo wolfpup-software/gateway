@@ -1,28 +1,28 @@
-# Gateway
+# reverse_proxy
 
 Route requests to local or upstream servers.
 
 ## About
 
-A reverse-proxy written in rust using [tokio](https://tokio.rs/) and
+A reverse proxy written in rust using [tokio](https://tokio.rs/) and
 [hyper](https://hyper.rs/).
 
-`Gateway` forwards incoming encrypted http1 and http2 requests to upstream servers.
+`reverse_proxy` forwards incoming encrypted http1 and http2 requests to upstream servers.
 
 ## How to use
 
-### Install gateway
+### Install reverse_proxy
 
-Execute the following to install `gateway`.
+Execute the following to install `reverse_proxy`.
 
 ```sh
-git clone https://github.com/herebythere/gateway
-cargo install --path gateway/gateway
+git clone https://github.com/wolfpup_software/reverse_proxy
+cargo install --path reverse_proxy/reverse_proxy
 ```
 
 ### Create a JSON config
 
-A JSON configuration file is required to run `gateway`.
+A JSON configuration file is required to run `reverse_proxy`.
 
 #### JSON Schema
 
@@ -42,7 +42,7 @@ All filepaths can be absolute or relative to the config filepath.
 }
 ```
 
-A valid configuration example can be found at [`./gateway.example.json`](./gateway.example.json`)
+A valid configuration example can be found at [`./reverse_proxy.example.json`](./reverse_proxy.example.json`)
 
 #### Properties
 
@@ -52,9 +52,7 @@ A valid configuration example can be found at [`./gateway.example.json`](./gatew
 | `key_filepath` | the filepath of a key from a TLS certificate |
 | `cert_filepath` |  the filepath of a cert from a TLS certificate | 
 | `addresses` | A key value map of URIs used to route incoming requests to upstream servers. Only the `host` and `port` of a URI will be used for routing requests. |
-| `dangerous_self_signed_addresses` (optional)  | allows `gateway` to make requests to servers with self-signed TLS certificates |
-
-
+| `dangerous_self_signed_addresses` (optional)  | allows `reverse_proxy` to make requests to servers with self-signed TLS certificates |
 
 #### Allow self-signed certificates
 
@@ -64,14 +62,14 @@ Ideally never.
 
 This optional property is intended to forward requests to servers using self-signed TLS certificates on local networks.
 
-### Run gateway
+### Run reverse_proxy
 
 ```sh
-gateway ./path/to/config.json
+reverse_proxy ./path/to/config.json
 ```
 
 Open a browser and visit `https://localhost:XXXX`.
 
 ## Licence
 
-`Gateway` is released under the BSD 3-Clause License
+`reverse_proxy` is released under the BSD 3-Clause License
