@@ -91,7 +91,6 @@ pub async fn from_filepath(filepath: &PathBuf) -> Result<Config, ConfigError> {
 }
 
 pub fn get_host_and_port(uri: &Uri) -> Option<String> {
-    println!("get host and port");
     let host = match uri.host() {
         Some(h) => h,
         _ => return None,
@@ -111,7 +110,6 @@ pub fn get_host_and_port(uri: &Uri) -> Option<String> {
             }
         }
     };
-    println!("host port {:?} {:?}", host, port);
 
     Some(host.to_string() + ":" + &port)
 }
@@ -136,14 +134,14 @@ fn add_addresses_to_map<'a>(
     addresses: &Vec<(String, String)>,
     is_dangerous: bool,
 ) -> Result<(), ConfigError<'a>> {
-    for (arrival_str, dest_str) in addresses {
-        let arrival_uri = match Uri::try_from(arrival_str) {
+    for (source_str, target_str) in addresses {
+        let source_uri = match Uri::try_from(source_str) {
             Ok(uri) => uri,
             Err(e) => return Err(ConfigError::UriError(e)),
         };
 
         // get port if available
-        let host = match get_host_and_port(&arrival_uri) {
+        let host = match get_host_and_port(&source_uri) {
             Some(h) => h,
             _ => {
                 return Err(ConfigError::Error(
@@ -152,15 +150,37 @@ fn add_addresses_to_map<'a>(
             }
         };
 
-        // no need to remove path and query, it is replaced later
-        // println!("{:?}", dest_str);
-        // println!("almost");
-        let dest_uri = match Uri::try_from(dest_str) {
+        let target_uri = match Uri::try_from(target_str) {
             Ok(uri) => uri,
             Err(e) => return Err(ConfigError::UriError(e)),
         };
 
-        url_map.insert(host, (dest_uri, is_dangerous));
+        let path_and_query = match get_target_uri(&target_uri) {
+            Ok(p_q) => p_q,
+            Err(e) => return Err(e),
+        };
+
+        let mut target_parts = target_uri.clone().into_parts();
+        target_parts.path_and_query = Some(path_and_query);
+
+        url_map.insert(host, (target_uri, is_dangerous));
     }
+
     Ok(())
+}
+
+pub fn get_target_uri<'a>(dest_uri: &Uri) -> Result<http::uri::PathAndQuery, ConfigError<'a>> {
+    let mut uri_path = path::Path::new(dest_uri.path());
+    if uri_path.is_file() {
+        uri_path = match uri_path.parent() {
+            Some(uri) => uri,
+            _ => return Err(ConfigError::Error("path has no parent path")),
+        }
+    }
+
+    let uri_path_str = uri_path.to_string_lossy().to_string();
+    match http::uri::PathAndQuery::try_from(uri_path_str) {
+        Ok(p_q) => Ok(p_q),
+        Err(e) => return Err(ConfigError::UriError(e)),
+    }
 }

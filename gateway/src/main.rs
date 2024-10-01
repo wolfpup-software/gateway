@@ -13,11 +13,6 @@ mod service;
 
 #[tokio::main]
 async fn main() {
-    match http::uri::PathAndQuery::try_from("/") {
-        Ok(p_q) => println!("p_q {:?}", p_q),
-        Err(e) => return println!("p_q error{:?}", e.to_string()),
-    };
-
     // create config
     let args = match env::args().nth(1) {
         Some(a) => path::PathBuf::from(a),

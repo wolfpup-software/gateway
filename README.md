@@ -24,18 +24,6 @@ cargo install --path gateway/gateway
 
 A JSON configuration file is required to run `gateway`.
 
-A valid configuration example can be found at [`./gateway.example.json`](./gateway.example.json`)
-
-#### Properties
-
-| name | definition |
-|----------|------------|
-| `host_and_port` | the address of the server (ie: 0.0.0.0:3000) |
-| `key_filepath` | the filepath of a key from a TLS certificate |
-| `cert_filepath` |  the filepath of a cert from a TLS certificate | 
-| `addresses` | A key value map of URIs used to route incoming requests to upstream servers. Only the `host` and `port` of a URI will be used for routing requests. |
-| `dangerous_self_signed_addresses` (optional)  | allows `gateway` to make requests to servers with self-signed TLS certificates |
-
 #### JSON Schema
 
 All filepaths can be absolute or relative to the config filepath.
@@ -54,6 +42,20 @@ All filepaths can be absolute or relative to the config filepath.
 }
 ```
 
+A valid configuration example can be found at [`./gateway.example.json`](./gateway.example.json`)
+
+#### Properties
+
+| name | definition |
+|----------|------------|
+| `host_and_port` | the address of the server (ie: 0.0.0.0:3000) |
+| `key_filepath` | the filepath of a key from a TLS certificate |
+| `cert_filepath` |  the filepath of a cert from a TLS certificate | 
+| `addresses` | A key value map of URIs used to route incoming requests to upstream servers. Only the `host` and `port` of a URI will be used for routing requests. |
+| `dangerous_self_signed_addresses` (optional)  | allows `gateway` to make requests to servers with self-signed TLS certificates |
+
+
+
 #### Allow self-signed certificates
 
 ONLY USE the `dangerous_self_signed_addresses` property WITH EXTREME CAUTION.
@@ -68,7 +70,7 @@ This optional property is intended to forward requests to servers using self-sig
 gateway ./path/to/config.json
 ```
 
-Open a browser and visit `https://localhost:4000`.
+Open a browser and visit `https://localhost:XXXX`.
 
 ## Licence
 
